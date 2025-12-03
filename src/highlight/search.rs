@@ -2,7 +2,7 @@ use ratatui::style::Color;
 use regex::Regex;
 
 use crate::cli::Args;
-use crate::display::{Document, Line, SpanStyle, StyledSpan};
+use crate::display::{Document, SpanStyle, StyledSpan};
 use crate::error::MatError;
 use crate::filter::build_regex;
 

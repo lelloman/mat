@@ -1,5 +1,6 @@
 use crate::display::Document;
 use crate::highlight::SearchState;
+use crate::theme::ThemeColors;
 
 /// Pager mode
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,11 +29,18 @@ pub struct App {
     pub show_line_numbers: bool,
     /// Search state (if any)
     pub search_state: Option<SearchState>,
+    /// Theme colors for UI rendering
+    pub theme_colors: ThemeColors,
 }
 
 impl App {
     /// Create a new App with the given document
-    pub fn new(document: Document, show_line_numbers: bool, search_state: Option<SearchState>) -> Self {
+    pub fn new(
+        document: Document,
+        show_line_numbers: bool,
+        search_state: Option<SearchState>,
+        theme_colors: ThemeColors,
+    ) -> Self {
         Self {
             document,
             scroll_line: 0,
@@ -42,6 +50,7 @@ impl App {
             terminal_size: (80, 24),
             show_line_numbers,
             search_state,
+            theme_colors,
         }
     }
 
@@ -202,16 +211,21 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::Theme;
 
     fn create_test_doc(lines: usize) -> Document {
         let text: String = (1..=lines).map(|i| format!("Line {}\n", i)).collect();
         Document::from_text(&text.trim_end(), "test.txt".to_string(), "UTF-8".to_string())
     }
 
+    fn test_theme_colors() -> ThemeColors {
+        ThemeColors::for_theme(Theme::Dark)
+    }
+
     #[test]
     fn test_scroll_down() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None);
+        let mut app = App::new(doc, false, None, test_theme_colors());
         app.set_terminal_size(80, 24); // 23 content lines
 
         assert_eq!(app.scroll_line, 0);
@@ -226,7 +240,7 @@ mod tests {
     #[test]
     fn test_scroll_up() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None);
+        let mut app = App::new(doc, false, None, test_theme_colors());
         app.scroll_line = 50;
 
         app.scroll_up(10);
@@ -240,7 +254,7 @@ mod tests {
     #[test]
     fn test_go_to_top_bottom() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None);
+        let mut app = App::new(doc, false, None, test_theme_colors());
         app.set_terminal_size(80, 24);
         app.scroll_line = 50;
 
@@ -254,15 +268,15 @@ mod tests {
     #[test]
     fn test_gutter_width() {
         let doc = create_test_doc(9);
-        let app = App::new(doc, true, None);
+        let app = App::new(doc, true, None, test_theme_colors());
         assert_eq!(app.gutter_width(), 3); // " 9 "
 
         let doc = create_test_doc(99);
-        let app = App::new(doc, true, None);
+        let app = App::new(doc, true, None, test_theme_colors());
         assert_eq!(app.gutter_width(), 4); // " 99 "
 
         let doc = create_test_doc(999);
-        let app = App::new(doc, true, None);
+        let app = App::new(doc, true, None, test_theme_colors());
         assert_eq!(app.gutter_width(), 5); // " 999 "
     }
 }

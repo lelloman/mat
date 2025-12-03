@@ -97,6 +97,7 @@ pub fn handle_key(key: KeyEvent, app: &mut App) -> bool {
 mod tests {
     use super::*;
     use crate::display::Document;
+    use crate::theme::{Theme, ThemeColors};
 
     fn create_test_app() -> App {
         let doc = Document::from_text(
@@ -104,7 +105,8 @@ mod tests {
             "test.txt".to_string(),
             "UTF-8".to_string(),
         );
-        let mut app = App::new(doc, false, None);
+        let theme_colors = ThemeColors::for_theme(Theme::Dark);
+        let mut app = App::new(doc, false, None, theme_colors);
         app.set_terminal_size(80, 3); // 2 content lines visible
         app
     }

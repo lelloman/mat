@@ -17,6 +17,7 @@ use crate::cli::Args;
 use crate::display::Document;
 use crate::error::MatError;
 use crate::highlight::SearchState;
+use crate::theme::{get_theme, ThemeColors};
 
 pub use app::App;
 
@@ -134,8 +135,12 @@ pub fn run_pager(document: Document, args: &Args, search_state: Option<SearchSta
         path: std::path::PathBuf::from("terminal"),
     })?;
 
-    // Create app with search state
-    let mut app = App::new(document, args.line_numbers, search_state);
+    // Determine theme and create colors
+    let theme = get_theme(args.theme.as_deref());
+    let theme_colors = ThemeColors::for_theme(theme);
+
+    // Create app with search state and theme
+    let mut app = App::new(document, args.line_numbers, search_state, theme_colors);
 
     // Find all matches if search is active
     if let Some(ref mut state) = app.search_state {

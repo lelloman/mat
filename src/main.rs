@@ -5,6 +5,7 @@ mod filter;
 mod highlight;
 mod input;
 mod pager;
+mod theme;
 
 use clap::Parser;
 use std::process::ExitCode;

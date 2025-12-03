@@ -47,7 +47,7 @@ fn render_content(frame: &mut Frame, app: &App, area: Rect) {
             .split(area);
 
         // Render line number gutter
-        render_gutter(frame, visible_lines, gutter_width, chunks[0]);
+        render_gutter(frame, visible_lines, gutter_width, chunks[0], app.theme_colors.line_number);
 
         // Render content
         render_lines(frame, app, visible_lines, content_width, chunks[1]);
@@ -58,8 +58,8 @@ fn render_content(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 /// Render the line number gutter
-fn render_gutter(frame: &mut Frame, lines: &[Line], gutter_width: usize, area: Rect) {
-    let gutter_style = Style::default().fg(Color::DarkGray);
+fn render_gutter(frame: &mut Frame, lines: &[Line], gutter_width: usize, area: Rect, line_number_color: Color) {
+    let gutter_style = Style::default().fg(line_number_color);
 
     let gutter_lines: Vec<RatatuiLine> = lines
         .iter()
@@ -146,7 +146,9 @@ fn truncate_with_scroll(text: &str, scroll_col: usize, width: usize) -> String {
 
 /// Render the status bar
 fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
-    let style = Style::default().bg(Color::DarkGray).fg(Color::White);
+    let style = Style::default()
+        .bg(app.theme_colors.status_bg)
+        .fg(app.theme_colors.status_fg);
 
     // Left: file name and position
     let position = format!(
