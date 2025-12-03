@@ -14,9 +14,10 @@ use cli::Args;
 use display::Document;
 use error::{MatError, EXIT_SUCCESS};
 use filter::{grep_filter, GrepOptions};
-use highlight::{apply_search_highlight, SearchState};
+use highlight::{apply_search_highlight, apply_syntax_highlight, SearchState};
 use input::{determine_input_source, load_content};
 use pager::{filter_line_range, parse_line_range, print_document, run_pager};
+use theme::get_theme;
 
 fn run(args: Args) -> Result<(), MatError> {
     // Determine input source
@@ -43,6 +44,14 @@ fn run(args: Args) -> Result<(), MatError> {
     // Apply grep filter if specified
     if let Some(grep_options) = GrepOptions::from_args(&args)? {
         document = grep_filter(&document, &grep_options);
+    }
+
+    // Determine theme for highlighting
+    let theme = get_theme(args.theme.as_deref());
+
+    // Apply syntax highlighting if not disabled
+    if !args.no_highlight {
+        apply_syntax_highlight(&mut document, args.language.as_deref(), theme);
     }
 
     // Apply search highlighting if specified

@@ -75,6 +75,15 @@ impl SpanStyle {
 
         style
     }
+
+    /// Check if this is the default plain style (no styling)
+    pub fn is_plain(&self) -> bool {
+        self.fg.is_none()
+            && self.bg.is_none()
+            && !self.bold
+            && !self.italic
+            && !self.underline
+    }
 }
 
 /// A span of styled text

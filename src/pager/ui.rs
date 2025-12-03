@@ -80,28 +80,77 @@ fn render_lines(frame: &mut Frame, app: &App, lines: &[Line], width: usize, area
     let display_lines: Vec<RatatuiLine> = lines
         .iter()
         .map(|line| {
-            let text = line.text();
-            let display_text = truncate_with_scroll(&text, scroll_col, width);
-
-            // Convert spans to ratatui spans
-            let spans: Vec<Span> = line
-                .spans
-                .iter()
-                .map(|span| Span::styled(span.text.clone(), span.style.to_ratatui_style()))
-                .collect();
-
-            // For now, use simple text (styling will be added in later phases)
-            if spans.is_empty() {
+            if line.spans.is_empty() || line.spans.len() == 1 && line.spans[0].style.is_plain() {
+                // Simple case: plain text, use fast path
+                let text = line.text();
+                let display_text = truncate_with_scroll(&text, scroll_col, width);
                 RatatuiLine::from(Span::raw(display_text))
             } else {
-                // Apply horizontal scroll to the styled content
-                RatatuiLine::from(Span::raw(display_text))
+                // Styled spans: need to handle scrolling across span boundaries
+                let ratatui_spans = truncate_spans_with_scroll(&line.spans, scroll_col, width);
+                RatatuiLine::from(ratatui_spans)
             }
         })
         .collect();
 
     let paragraph = Paragraph::new(display_lines);
     frame.render_widget(paragraph, area);
+}
+
+/// Truncate styled spans for horizontal scrolling
+fn truncate_spans_with_scroll(
+    spans: &[crate::display::StyledSpan],
+    scroll_col: usize,
+    width: usize,
+) -> Vec<Span<'static>> {
+    let mut result = Vec::new();
+    let mut current_col = 0;
+    let mut chars_taken = 0;
+
+    for span in spans {
+        if chars_taken >= width {
+            break;
+        }
+
+        let mut span_text = String::new();
+        let style = span.style.to_ratatui_style();
+
+        for ch in span.text.chars() {
+            let ch_width = UnicodeWidthStr::width(ch.to_string().as_str());
+
+            if current_col >= scroll_col {
+                // We're past the scroll offset, start adding characters
+                if chars_taken + ch_width <= width {
+                    span_text.push(ch);
+                    chars_taken += ch_width;
+                } else {
+                    break;
+                }
+            } else if current_col + ch_width > scroll_col {
+                // Character spans the scroll boundary - add spaces for partial overlap
+                let overlap = current_col + ch_width - scroll_col;
+                for _ in 0..overlap {
+                    if chars_taken < width {
+                        span_text.push(' ');
+                        chars_taken += 1;
+                    }
+                }
+            }
+
+            current_col += ch_width;
+        }
+
+        if !span_text.is_empty() {
+            result.push(Span::styled(span_text, style));
+        }
+    }
+
+    // Pad with spaces if needed
+    if chars_taken < width {
+        result.push(Span::raw(" ".repeat(width - chars_taken)));
+    }
+
+    result
 }
 
 /// Truncate text for horizontal scrolling
