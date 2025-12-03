@@ -1,3 +1,8 @@
+//! Large file support using memory mapping and lazy loading.
+//! This module is prepared for future integration but not yet used in the main flow.
+
+#![allow(dead_code)]
+
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::num::NonZeroUsize;

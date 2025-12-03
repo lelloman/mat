@@ -85,6 +85,7 @@ pub fn get_theme(theme_arg: Option<&str>) -> Theme {
 
 /// Color scheme for the UI
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ThemeColors {
     /// Line number color
     pub line_number: Color,

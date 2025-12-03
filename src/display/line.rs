@@ -36,6 +36,7 @@ impl SpanStyle {
     }
 
     /// Set italic
+    #[allow(dead_code)]
     pub fn italic(mut self) -> Self {
         self.italic = true;
         self
@@ -125,7 +126,8 @@ pub struct Line {
     pub spans: Vec<StyledSpan>,
     /// Whether this line is a grep match
     pub is_match: bool,
-    /// Whether this line is grep context
+    /// Whether this line is grep context (for future use with context styling)
+    #[allow(dead_code)]
     pub is_context: bool,
 }
 

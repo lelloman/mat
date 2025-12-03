@@ -32,6 +32,7 @@ impl InteractiveSearch {
     }
 
     /// Clear the search query
+    #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.query.clear();
     }

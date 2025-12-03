@@ -14,7 +14,8 @@ pub use binary::is_binary;
 pub use encoding::{decode_bytes, detect_encoding};
 pub use file::{detect_extension, is_markdown_extension, read_file};
 pub use follow::FollowReader;
-pub use large::{LazyDocument, LARGE_FILE_THRESHOLD, should_use_lazy_loading};
+// Large file support is available but not yet integrated into the main flow
+// pub use large::{LazyDocument, LARGE_FILE_THRESHOLD, should_use_lazy_loading};
 pub use stdin::{is_stdin_piped, read_stdin};
 
 /// Represents the source of input
@@ -33,7 +34,8 @@ pub struct Content {
     pub text: String,
     /// Name of the source (filename or "stdin")
     pub source_name: String,
-    /// File extension if applicable
+    /// File extension if applicable (for future language detection)
+    #[allow(dead_code)]
     pub extension: Option<String>,
     /// Whether this should be treated as markdown
     pub is_markdown: bool,

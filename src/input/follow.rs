@@ -66,6 +66,7 @@ impl FollowReader {
     }
 
     /// Get the current file position
+    #[allow(dead_code)]
     pub fn position(&self) -> u64 {
         self.position
     }

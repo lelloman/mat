@@ -59,6 +59,7 @@ pub struct App {
 
 /// A single display row, which may be part of a wrapped line
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct WrappedLine {
     /// Original line index in the document (0-indexed)
     pub line_idx: usize,
@@ -412,6 +413,7 @@ impl App {
     }
 
     /// Check if we're at the end of the document
+    #[allow(dead_code)]
     pub fn at_bottom(&self) -> bool {
         match self.wrap_mode {
             WrapMode::None | WrapMode::Truncate => {
@@ -425,6 +427,7 @@ impl App {
     }
 
     /// Check if we're in a wrapping mode
+    #[allow(dead_code)]
     pub fn is_wrapping(&self) -> bool {
         self.wrap_mode == WrapMode::Wrap
     }
@@ -524,6 +527,7 @@ impl App {
     }
 
     /// Get wrapped lines, building cache if needed
+    #[allow(dead_code)]
     pub fn get_wrapped_lines(&mut self) -> Option<&Vec<WrappedLine>> {
         if self.wrap_mode != WrapMode::Wrap {
             return None;
@@ -535,11 +539,13 @@ impl App {
     }
 
     /// Invalidate wrapped lines cache (call when document changes)
+    #[allow(dead_code)]
     pub fn invalidate_wrap_cache(&mut self) {
         self.wrapped_lines = None;
     }
 
     /// Get visible wrapped line range for rendering
+    #[allow(dead_code)]
     pub fn visible_wrapped_range(&self) -> Option<(usize, usize)> {
         if self.wrap_mode != WrapMode::Wrap {
             return None;

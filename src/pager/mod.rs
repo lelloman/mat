@@ -20,7 +20,7 @@ use crate::error::MatError;
 use crate::highlight::SearchState;
 use crate::theme::{get_theme, ThemeColors};
 
-pub use app::{App, WrappedLine};
+pub use app::App;
 
 /// Parse line range from --lines argument
 pub fn parse_line_range(range: &str, total_lines: usize) -> Result<(usize, usize), MatError> {

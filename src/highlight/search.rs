@@ -192,7 +192,8 @@ pub fn apply_search_highlight(document: &mut Document, pattern: &Regex) {
     }
 }
 
-/// Highlight matches in a single line
+/// Highlight matches in a single line (used in tests)
+#[cfg(test)]
 fn highlight_line(text: &str, pattern: &Regex, style: &SpanStyle) -> Vec<StyledSpan> {
     let matches: Vec<_> = pattern.find_iter(text).collect();
 
