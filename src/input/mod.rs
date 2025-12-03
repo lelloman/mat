@@ -2,6 +2,7 @@ mod binary;
 mod encoding;
 mod file;
 mod follow;
+pub mod large;
 mod stdin;
 
 use std::path::PathBuf;
@@ -13,6 +14,7 @@ pub use binary::is_binary;
 pub use encoding::{decode_bytes, detect_encoding};
 pub use file::{detect_extension, is_markdown_extension, read_file};
 pub use follow::FollowReader;
+pub use large::{LazyDocument, LARGE_FILE_THRESHOLD, should_use_lazy_loading};
 pub use stdin::{is_stdin_piped, read_stdin};
 
 /// Represents the source of input
