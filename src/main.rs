@@ -2,6 +2,7 @@ mod cli;
 mod display;
 mod error;
 mod input;
+mod pager;
 
 use clap::Parser;
 use std::process::ExitCode;
@@ -10,6 +11,7 @@ use cli::Args;
 use display::Document;
 use error::{MatError, EXIT_SUCCESS};
 use input::{determine_input_source, load_content};
+use pager::{filter_line_range, parse_line_range, print_document, run_pager};
 
 fn run(args: Args) -> Result<(), MatError> {
     // Determine input source
@@ -25,18 +27,22 @@ fn run(args: Args) -> Result<(), MatError> {
     let content = load_content(source, &args)?;
 
     // Create document
-    let document = Document::from_text(&content.text, content.source_name, content.encoding);
+    let mut document = Document::from_text(&content.text, content.source_name, content.encoding);
 
-    // Print document info for testing
-    eprintln!("Source: {}", document.source_name);
-    eprintln!("Encoding: {}", document.encoding);
-    eprintln!("Lines: {}", document.line_count());
-    eprintln!("Max width: {}", document.max_line_width);
-    eprintln!("---");
+    // Apply line range filter if specified
+    if let Some(ref range) = args.lines {
+        let (start, end) = parse_line_range(range, document.line_count())?;
+        filter_line_range(&mut document, start, end);
+    }
 
-    // For now, just print the content
-    for line in &document.lines {
-        println!("{}", line.text());
+    // Run pager or print directly
+    if args.no_pager {
+        print_document(&document, args.line_numbers).map_err(|e| MatError::Io {
+            source: e,
+            path: std::path::PathBuf::from("stdout"),
+        })?;
+    } else {
+        run_pager(document, &args)?;
     }
 
     Ok(())

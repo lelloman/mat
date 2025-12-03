@@ -1,0 +1,224 @@
+use crate::display::Document;
+
+/// Pager mode
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Mode {
+    /// Normal viewing mode
+    Normal,
+    /// Search mode with query input
+    Search { query: String },
+}
+
+/// Main pager application state
+pub struct App {
+    /// The document being viewed
+    pub document: Document,
+    /// Current scroll line (0-indexed, top of viewport)
+    pub scroll_line: usize,
+    /// Current horizontal scroll offset (0-indexed)
+    pub scroll_col: usize,
+    /// Current mode
+    pub mode: Mode,
+    /// Whether the app should quit
+    pub should_quit: bool,
+    /// Terminal size (width, height)
+    pub terminal_size: (u16, u16),
+    /// Whether to show line numbers
+    pub show_line_numbers: bool,
+}
+
+impl App {
+    /// Create a new App with the given document
+    pub fn new(document: Document, show_line_numbers: bool) -> Self {
+        Self {
+            document,
+            scroll_line: 0,
+            scroll_col: 0,
+            mode: Mode::Normal,
+            should_quit: false,
+            terminal_size: (80, 24),
+            show_line_numbers,
+        }
+    }
+
+    /// Update terminal size
+    pub fn set_terminal_size(&mut self, width: u16, height: u16) {
+        self.terminal_size = (width, height);
+    }
+
+    /// Get the content area height (excluding status bar)
+    pub fn content_height(&self) -> usize {
+        self.terminal_size.1.saturating_sub(1) as usize
+    }
+
+    /// Get the content area width
+    pub fn content_width(&self) -> usize {
+        let gutter_width = if self.show_line_numbers {
+            self.gutter_width()
+        } else {
+            0
+        };
+        (self.terminal_size.0 as usize).saturating_sub(gutter_width)
+    }
+
+    /// Get the gutter (line number) width
+    pub fn gutter_width(&self) -> usize {
+        if !self.show_line_numbers {
+            return 0;
+        }
+        // Calculate width based on max line number
+        let max_line = self.document.line_count();
+        if max_line == 0 {
+            3 // Minimum " 1 "
+        } else {
+            let digits = (max_line as f64).log10().floor() as usize + 1;
+            digits + 2 // Space before and after number
+        }
+    }
+
+    /// Get the range of visible lines
+    pub fn visible_line_range(&self) -> (usize, usize) {
+        let start = self.scroll_line;
+        let end = (start + self.content_height()).min(self.document.line_count());
+        (start, end)
+    }
+
+    /// Scroll down by n lines
+    pub fn scroll_down(&mut self, n: usize) {
+        let max_scroll = self.document.line_count().saturating_sub(self.content_height());
+        self.scroll_line = (self.scroll_line + n).min(max_scroll);
+    }
+
+    /// Scroll up by n lines
+    pub fn scroll_up(&mut self, n: usize) {
+        self.scroll_line = self.scroll_line.saturating_sub(n);
+    }
+
+    /// Scroll left by n columns
+    pub fn scroll_left(&mut self, n: usize) {
+        self.scroll_col = self.scroll_col.saturating_sub(n);
+    }
+
+    /// Scroll right by n columns
+    pub fn scroll_right(&mut self, n: usize) {
+        let max_scroll = self.document.max_line_width.saturating_sub(self.content_width());
+        self.scroll_col = (self.scroll_col + n).min(max_scroll);
+    }
+
+    /// Scroll to the start of the current line
+    pub fn scroll_to_line_start(&mut self) {
+        self.scroll_col = 0;
+    }
+
+    /// Scroll to the end of the longest visible line
+    pub fn scroll_to_line_end(&mut self) {
+        let max_scroll = self.document.max_line_width.saturating_sub(self.content_width());
+        self.scroll_col = max_scroll;
+    }
+
+    /// Go to the top of the document
+    pub fn go_to_top(&mut self) {
+        self.scroll_line = 0;
+    }
+
+    /// Go to the bottom of the document
+    pub fn go_to_bottom(&mut self) {
+        let max_scroll = self.document.line_count().saturating_sub(self.content_height());
+        self.scroll_line = max_scroll;
+    }
+
+    /// Scroll down half a page
+    pub fn scroll_half_page_down(&mut self) {
+        let half_page = self.content_height() / 2;
+        self.scroll_down(half_page);
+    }
+
+    /// Scroll up half a page
+    pub fn scroll_half_page_up(&mut self) {
+        let half_page = self.content_height() / 2;
+        self.scroll_up(half_page);
+    }
+
+    /// Get current line number for status bar (1-indexed)
+    pub fn current_line_display(&self) -> usize {
+        self.scroll_line + 1
+    }
+
+    /// Get total line count for status bar
+    pub fn total_lines(&self) -> usize {
+        self.document.line_count()
+    }
+
+    /// Check if we're at the end of the document
+    pub fn at_bottom(&self) -> bool {
+        self.scroll_line + self.content_height() >= self.document.line_count()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_doc(lines: usize) -> Document {
+        let text: String = (1..=lines).map(|i| format!("Line {}\n", i)).collect();
+        Document::from_text(&text.trim_end(), "test.txt".to_string(), "UTF-8".to_string())
+    }
+
+    #[test]
+    fn test_scroll_down() {
+        let doc = create_test_doc(100);
+        let mut app = App::new(doc, false);
+        app.set_terminal_size(80, 24); // 23 content lines
+
+        assert_eq!(app.scroll_line, 0);
+        app.scroll_down(5);
+        assert_eq!(app.scroll_line, 5);
+
+        // Can't scroll past the end
+        app.scroll_down(1000);
+        assert_eq!(app.scroll_line, 77); // 100 - 23 = 77
+    }
+
+    #[test]
+    fn test_scroll_up() {
+        let doc = create_test_doc(100);
+        let mut app = App::new(doc, false);
+        app.scroll_line = 50;
+
+        app.scroll_up(10);
+        assert_eq!(app.scroll_line, 40);
+
+        // Can't scroll past the start
+        app.scroll_up(1000);
+        assert_eq!(app.scroll_line, 0);
+    }
+
+    #[test]
+    fn test_go_to_top_bottom() {
+        let doc = create_test_doc(100);
+        let mut app = App::new(doc, false);
+        app.set_terminal_size(80, 24);
+        app.scroll_line = 50;
+
+        app.go_to_top();
+        assert_eq!(app.scroll_line, 0);
+
+        app.go_to_bottom();
+        assert_eq!(app.scroll_line, 77);
+    }
+
+    #[test]
+    fn test_gutter_width() {
+        let doc = create_test_doc(9);
+        let app = App::new(doc, true);
+        assert_eq!(app.gutter_width(), 3); // " 9 "
+
+        let doc = create_test_doc(99);
+        let app = App::new(doc, true);
+        assert_eq!(app.gutter_width(), 4); // " 99 "
+
+        let doc = create_test_doc(999);
+        let app = App::new(doc, true);
+        assert_eq!(app.gutter_width(), 5); // " 999 "
+    }
+}
