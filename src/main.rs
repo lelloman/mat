@@ -4,6 +4,7 @@ mod error;
 mod filter;
 mod highlight;
 mod input;
+mod markdown;
 mod pager;
 mod theme;
 
@@ -16,6 +17,7 @@ use error::{MatError, EXIT_SUCCESS};
 use filter::{grep_filter, GrepOptions};
 use highlight::{apply_search_highlight, apply_syntax_highlight, SearchState};
 use input::{determine_input_source, load_content};
+use markdown::render_markdown;
 use pager::{filter_line_range, parse_line_range, print_document, run_pager};
 use theme::get_theme;
 
@@ -32,8 +34,22 @@ fn run(args: Args) -> Result<(), MatError> {
     // Load content
     let content = load_content(source, &args)?;
 
-    // Create document
-    let mut document = Document::from_text(&content.text, content.source_name, content.encoding);
+    // Determine if we should render as markdown
+    let should_render_markdown = if args.no_markdown {
+        false
+    } else if args.markdown {
+        true
+    } else {
+        // Auto-detect based on extension
+        content.is_markdown
+    };
+
+    // Create document (with or without markdown rendering)
+    let mut document = if should_render_markdown {
+        render_markdown(&content.text, content.source_name)
+    } else {
+        Document::from_text(&content.text, content.source_name, content.encoding)
+    };
 
     // Apply line range filter if specified
     if let Some(ref range) = args.lines {
