@@ -14,7 +14,7 @@ pub enum WrapMode {
 }
 
 /// mat - A CLI tool combining cat, less, grep functionality with markdown rendering and syntax highlighting
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Default)]
 #[command(name = "mat")]
 #[command(version)]
 #[command(about = "A CLI tool combining cat, less, grep with markdown rendering and syntax highlighting")]

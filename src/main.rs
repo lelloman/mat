@@ -1,6 +1,7 @@
 mod cli;
 mod display;
 mod error;
+mod filter;
 mod input;
 mod pager;
 
@@ -10,6 +11,7 @@ use std::process::ExitCode;
 use cli::Args;
 use display::Document;
 use error::{MatError, EXIT_SUCCESS};
+use filter::{grep_filter, GrepOptions};
 use input::{determine_input_source, load_content};
 use pager::{filter_line_range, parse_line_range, print_document, run_pager};
 
@@ -33,6 +35,11 @@ fn run(args: Args) -> Result<(), MatError> {
     if let Some(ref range) = args.lines {
         let (start, end) = parse_line_range(range, document.line_count())?;
         filter_line_range(&mut document, start, end);
+    }
+
+    // Apply grep filter if specified
+    if let Some(grep_options) = GrepOptions::from_args(&args)? {
+        document = grep_filter(&document, &grep_options);
     }
 
     // Run pager or print directly
