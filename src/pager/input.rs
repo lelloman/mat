@@ -1,20 +1,35 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::app::App;
+use super::app::{App, Mode};
 
 /// Handle a key event, returning true if the app should quit
 pub fn handle_key(key: KeyEvent, app: &mut App) -> bool {
-    // Check for Ctrl+C first
+    // Check for Ctrl+C first - always quit
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
         app.should_quit = true;
         return true;
     }
 
+    // Handle based on current mode
+    match &app.mode {
+        Mode::Normal => handle_normal_mode(key, app),
+        Mode::Search { .. } => handle_search_mode(key, app),
+    }
+}
+
+/// Handle key events in normal mode
+fn handle_normal_mode(key: KeyEvent, app: &mut App) -> bool {
     match key.code {
         // Quit
         KeyCode::Char('q') | KeyCode::Esc => {
             app.should_quit = true;
             true
+        }
+
+        // Enter search mode
+        KeyCode::Char('/') => {
+            app.enter_search_mode();
+            false
         }
 
         // Scroll down
@@ -93,6 +108,37 @@ pub fn handle_key(key: KeyEvent, app: &mut App) -> bool {
     }
 }
 
+/// Handle key events in search mode
+fn handle_search_mode(key: KeyEvent, app: &mut App) -> bool {
+    match key.code {
+        // Cancel search
+        KeyCode::Esc => {
+            app.cancel_search();
+            false
+        }
+
+        // Confirm search
+        KeyCode::Enter => {
+            app.confirm_search();
+            false
+        }
+
+        // Delete last character
+        KeyCode::Backspace => {
+            app.search_backspace();
+            false
+        }
+
+        // Add character to search query
+        KeyCode::Char(c) => {
+            app.search_add_char(c);
+            false
+        }
+
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,7 +152,7 @@ mod tests {
             "UTF-8".to_string(),
         );
         let theme_colors = ThemeColors::for_theme(Theme::Dark);
-        let mut app = App::new(doc, false, None, theme_colors);
+        let mut app = App::new(doc, false, None, theme_colors, false);
         app.set_terminal_size(80, 3); // 2 content lines visible
         app
     }

@@ -87,7 +87,7 @@ impl SpanStyle {
 }
 
 /// A span of styled text
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StyledSpan {
     pub text: String,
     pub style: SpanStyle,
@@ -165,7 +165,7 @@ impl Line {
 }
 
 /// A document containing multiple lines
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Document {
     /// All lines in the document
     pub lines: Vec<Line>,

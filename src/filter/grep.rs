@@ -1,4 +1,4 @@
-use regex::{Regex, RegexBuilder};
+use regex::Regex;
 
 use crate::cli::Args;
 use crate::display::{Document, Line, SpanStyle, StyledSpan};
@@ -44,9 +44,15 @@ impl GrepOptions {
     }
 }
 
-/// Build a regex pattern with the given CLI options
-pub fn build_regex(pattern: &str, args: &Args) -> Result<Regex, MatError> {
-    let mut pattern_str = if args.fixed_strings {
+/// Build a regex pattern string with the given options
+pub fn build_regex_pattern(
+    pattern: &str,
+    ignore_case: bool,
+    fixed_strings: bool,
+    word_regexp: bool,
+    line_regexp: bool,
+) -> String {
+    let mut pattern_str = if fixed_strings {
         // Escape all regex metacharacters
         regex::escape(pattern)
     } else {
@@ -54,22 +60,37 @@ pub fn build_regex(pattern: &str, args: &Args) -> Result<Regex, MatError> {
     };
 
     // Word boundary matching
-    if args.word_regexp {
+    if word_regexp {
         pattern_str = format!(r"\b{}\b", pattern_str);
     }
 
     // Line matching
-    if args.line_regexp {
+    if line_regexp {
         pattern_str = format!(r"^{}$", pattern_str);
     }
 
-    RegexBuilder::new(&pattern_str)
-        .case_insensitive(args.ignore_case)
-        .build()
-        .map_err(|e| MatError::InvalidRegex {
-            source: e,
-            pattern: pattern.to_string(),
-        })
+    // Add case-insensitive flag if needed
+    if ignore_case {
+        pattern_str = format!("(?i){}", pattern_str);
+    }
+
+    pattern_str
+}
+
+/// Build a regex pattern with the given CLI options
+pub fn build_regex(pattern: &str, args: &Args) -> Result<Regex, MatError> {
+    let pattern_str = build_regex_pattern(
+        pattern,
+        args.ignore_case,
+        args.fixed_strings,
+        args.word_regexp,
+        args.line_regexp,
+    );
+
+    Regex::new(&pattern_str).map_err(|e| MatError::InvalidRegex {
+        source: e,
+        pattern: pattern.to_string(),
+    })
 }
 
 /// Filter a document to only include matching lines and context

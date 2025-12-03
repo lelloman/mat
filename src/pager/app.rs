@@ -2,6 +2,8 @@ use crate::display::Document;
 use crate::highlight::SearchState;
 use crate::theme::ThemeColors;
 
+use super::search::InteractiveSearch;
+
 /// Pager mode
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Mode {
@@ -15,6 +17,8 @@ pub enum Mode {
 pub struct App {
     /// The document being viewed
     pub document: Document,
+    /// Original document (for restoring after search cancel)
+    pub original_document: Option<Document>,
     /// Current scroll line (0-indexed, top of viewport)
     pub scroll_line: usize,
     /// Current horizontal scroll offset (0-indexed)
@@ -31,6 +35,10 @@ pub struct App {
     pub search_state: Option<SearchState>,
     /// Theme colors for UI rendering
     pub theme_colors: ThemeColors,
+    /// Interactive search state
+    pub interactive_search: Option<InteractiveSearch>,
+    /// Whether case-insensitive search is enabled
+    pub ignore_case: bool,
 }
 
 impl App {
@@ -40,9 +48,11 @@ impl App {
         show_line_numbers: bool,
         search_state: Option<SearchState>,
         theme_colors: ThemeColors,
+        ignore_case: bool,
     ) -> Self {
         Self {
             document,
+            original_document: None,
             scroll_line: 0,
             scroll_col: 0,
             mode: Mode::Normal,
@@ -51,7 +61,95 @@ impl App {
             show_line_numbers,
             search_state,
             theme_colors,
+            interactive_search: None,
+            ignore_case,
         }
+    }
+
+    /// Enter search mode
+    pub fn enter_search_mode(&mut self) {
+        // Save original document for potential cancellation
+        self.original_document = Some(self.document.clone());
+        self.interactive_search = Some(InteractiveSearch::new(self.ignore_case));
+        self.mode = Mode::Search {
+            query: String::new(),
+        };
+    }
+
+    /// Add a character to the search query
+    pub fn search_add_char(&mut self, c: char) {
+        if let Some(ref mut search) = self.interactive_search {
+            search.push_char(c);
+
+            // Update mode with new query
+            self.mode = Mode::Search {
+                query: search.query.clone(),
+            };
+
+            // Apply incremental highlighting
+            self.apply_incremental_search();
+        }
+    }
+
+    /// Remove the last character from the search query
+    pub fn search_backspace(&mut self) {
+        if let Some(ref mut search) = self.interactive_search {
+            search.pop_char();
+
+            // Update mode with new query
+            self.mode = Mode::Search {
+                query: search.query.clone(),
+            };
+
+            // Apply incremental highlighting
+            self.apply_incremental_search();
+        }
+    }
+
+    /// Apply incremental search highlighting
+    fn apply_incremental_search(&mut self) {
+        // Restore original document first
+        if let Some(ref original) = self.original_document {
+            self.document = original.clone();
+        }
+
+        // Apply highlighting
+        if let Some(ref search) = self.interactive_search {
+            search.apply_highlighting(&mut self.document);
+        }
+    }
+
+    /// Confirm the search and exit search mode
+    pub fn confirm_search(&mut self) {
+        if let Some(ref search) = self.interactive_search {
+            if !search.is_empty() {
+                // Create a proper SearchState for navigation
+                if let Some(pattern) = search.compile_pattern() {
+                    let mut state = SearchState {
+                        pattern,
+                        matches: Vec::new(),
+                        current_match: None,
+                    };
+                    state.find_matches(&self.document);
+                    self.search_state = Some(state);
+                }
+            }
+        }
+
+        self.mode = Mode::Normal;
+        self.interactive_search = None;
+        self.original_document = None;
+    }
+
+    /// Cancel the search and restore original document
+    pub fn cancel_search(&mut self) {
+        // Restore original document
+        if let Some(original) = self.original_document.take() {
+            self.document = original;
+        }
+
+        self.mode = Mode::Normal;
+        self.interactive_search = None;
     }
 
     /// Navigate to next search match
@@ -225,7 +323,7 @@ mod tests {
     #[test]
     fn test_scroll_down() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None, test_theme_colors());
+        let mut app = App::new(doc, false, None, test_theme_colors(), false);
         app.set_terminal_size(80, 24); // 23 content lines
 
         assert_eq!(app.scroll_line, 0);
@@ -240,7 +338,7 @@ mod tests {
     #[test]
     fn test_scroll_up() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None, test_theme_colors());
+        let mut app = App::new(doc, false, None, test_theme_colors(), false);
         app.scroll_line = 50;
 
         app.scroll_up(10);
@@ -254,7 +352,7 @@ mod tests {
     #[test]
     fn test_go_to_top_bottom() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None, test_theme_colors());
+        let mut app = App::new(doc, false, None, test_theme_colors(), false);
         app.set_terminal_size(80, 24);
         app.scroll_line = 50;
 
@@ -268,15 +366,15 @@ mod tests {
     #[test]
     fn test_gutter_width() {
         let doc = create_test_doc(9);
-        let app = App::new(doc, true, None, test_theme_colors());
+        let app = App::new(doc, true, None, test_theme_colors(), false);
         assert_eq!(app.gutter_width(), 3); // " 9 "
 
         let doc = create_test_doc(99);
-        let app = App::new(doc, true, None, test_theme_colors());
+        let app = App::new(doc, true, None, test_theme_colors(), false);
         assert_eq!(app.gutter_width(), 4); // " 99 "
 
         let doc = create_test_doc(999);
-        let app = App::new(doc, true, None, test_theme_colors());
+        let app = App::new(doc, true, None, test_theme_colors(), false);
         assert_eq!(app.gutter_width(), 5); // " 999 "
     }
 }

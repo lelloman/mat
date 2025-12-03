@@ -1,5 +1,6 @@
 mod app;
 mod input;
+mod search;
 mod ui;
 
 use std::io::{self, stdout, Write};
@@ -140,7 +141,13 @@ pub fn run_pager(document: Document, args: &Args, search_state: Option<SearchSta
     let theme_colors = ThemeColors::for_theme(theme);
 
     // Create app with search state and theme
-    let mut app = App::new(document, args.line_numbers, search_state, theme_colors);
+    let mut app = App::new(
+        document,
+        args.line_numbers,
+        search_state,
+        theme_colors,
+        args.ignore_case,
+    );
 
     // Find all matches if search is active
     if let Some(ref mut state) = app.search_state {
