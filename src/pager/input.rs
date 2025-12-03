@@ -77,6 +77,18 @@ pub fn handle_key(key: KeyEvent, app: &mut App) -> bool {
             false
         }
 
+        // Next search match
+        KeyCode::Char('n') => {
+            app.next_match();
+            false
+        }
+
+        // Previous search match
+        KeyCode::Char('N') => {
+            app.prev_match();
+            false
+        }
+
         _ => false,
     }
 }
@@ -92,7 +104,7 @@ mod tests {
             "test.txt".to_string(),
             "UTF-8".to_string(),
         );
-        let mut app = App::new(doc, false);
+        let mut app = App::new(doc, false, None);
         app.set_terminal_size(80, 3); // 2 content lines visible
         app
     }

@@ -1,4 +1,5 @@
 use crate::display::Document;
+use crate::highlight::SearchState;
 
 /// Pager mode
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,11 +26,13 @@ pub struct App {
     pub terminal_size: (u16, u16),
     /// Whether to show line numbers
     pub show_line_numbers: bool,
+    /// Search state (if any)
+    pub search_state: Option<SearchState>,
 }
 
 impl App {
     /// Create a new App with the given document
-    pub fn new(document: Document, show_line_numbers: bool) -> Self {
+    pub fn new(document: Document, show_line_numbers: bool, search_state: Option<SearchState>) -> Self {
         Self {
             document,
             scroll_line: 0,
@@ -38,7 +41,48 @@ impl App {
             should_quit: false,
             terminal_size: (80, 24),
             show_line_numbers,
+            search_state,
         }
+    }
+
+    /// Navigate to next search match
+    pub fn next_match(&mut self) {
+        if let Some(ref mut state) = self.search_state {
+            if let Some(line_idx) = state.next_match() {
+                self.scroll_to_line(line_idx);
+            }
+        }
+    }
+
+    /// Navigate to previous search match
+    pub fn prev_match(&mut self) {
+        if let Some(ref mut state) = self.search_state {
+            if let Some(line_idx) = state.prev_match() {
+                self.scroll_to_line(line_idx);
+            }
+        }
+    }
+
+    /// Scroll to show a specific line in the viewport
+    fn scroll_to_line(&mut self, line_idx: usize) {
+        let height = self.content_height();
+        // Try to center the line in the viewport
+        let target = line_idx.saturating_sub(height / 2);
+        let max_scroll = self.document.line_count().saturating_sub(height);
+        self.scroll_line = target.min(max_scroll);
+    }
+
+    /// Get search info for status bar
+    pub fn search_info(&self) -> Option<(usize, usize)> {
+        self.search_state.as_ref().and_then(|state| {
+            let total = state.match_count();
+            if total > 0 {
+                let current = state.current_match_display().unwrap_or(0);
+                Some((current, total))
+            } else {
+                None
+            }
+        })
     }
 
     /// Update terminal size
@@ -167,7 +211,7 @@ mod tests {
     #[test]
     fn test_scroll_down() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false);
+        let mut app = App::new(doc, false, None);
         app.set_terminal_size(80, 24); // 23 content lines
 
         assert_eq!(app.scroll_line, 0);
@@ -182,7 +226,7 @@ mod tests {
     #[test]
     fn test_scroll_up() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false);
+        let mut app = App::new(doc, false, None);
         app.scroll_line = 50;
 
         app.scroll_up(10);
@@ -196,7 +240,7 @@ mod tests {
     #[test]
     fn test_go_to_top_bottom() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false);
+        let mut app = App::new(doc, false, None);
         app.set_terminal_size(80, 24);
         app.scroll_line = 50;
 
@@ -210,15 +254,15 @@ mod tests {
     #[test]
     fn test_gutter_width() {
         let doc = create_test_doc(9);
-        let app = App::new(doc, true);
+        let app = App::new(doc, true, None);
         assert_eq!(app.gutter_width(), 3); // " 9 "
 
         let doc = create_test_doc(99);
-        let app = App::new(doc, true);
+        let app = App::new(doc, true, None);
         assert_eq!(app.gutter_width(), 4); // " 99 "
 
         let doc = create_test_doc(999);
-        let app = App::new(doc, true);
+        let app = App::new(doc, true, None);
         assert_eq!(app.gutter_width(), 5); // " 999 "
     }
 }

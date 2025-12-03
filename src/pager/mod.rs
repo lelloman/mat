@@ -16,6 +16,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use crate::cli::Args;
 use crate::display::Document;
 use crate::error::MatError;
+use crate::highlight::SearchState;
 
 pub use app::App;
 
@@ -106,7 +107,7 @@ pub fn print_document(document: &Document, show_line_numbers: bool) -> io::Resul
 }
 
 /// Run the pager TUI
-pub fn run_pager(document: Document, args: &Args) -> Result<(), MatError> {
+pub fn run_pager(document: Document, args: &Args, search_state: Option<SearchState>) -> Result<(), MatError> {
     // Set up panic hook to restore terminal on panic
     let original_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic_info| {
@@ -133,8 +134,13 @@ pub fn run_pager(document: Document, args: &Args) -> Result<(), MatError> {
         path: std::path::PathBuf::from("terminal"),
     })?;
 
-    // Create app
-    let mut app = App::new(document, args.line_numbers);
+    // Create app with search state
+    let mut app = App::new(document, args.line_numbers, search_state);
+
+    // Find all matches if search is active
+    if let Some(ref mut state) = app.search_state {
+        state.find_matches(&app.document);
+    }
 
     // Get initial terminal size
     let size = terminal.size().map_err(|e| MatError::Io {

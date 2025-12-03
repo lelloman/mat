@@ -156,9 +156,16 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         app.total_lines()
     );
 
-    // Center: mode indicator
+    // Center: mode indicator and search info
     let mode_str = match &app.mode {
-        Mode::Normal => String::new(),
+        Mode::Normal => {
+            // Show search match info if available
+            if let Some((current, total)) = app.search_info() {
+                format!(" Match {}/{} ", current, total)
+            } else {
+                String::new()
+            }
+        }
         Mode::Search { query } => format!(" [SEARCH: {}] ", query),
     };
 

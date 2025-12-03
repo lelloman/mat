@@ -2,6 +2,7 @@ mod cli;
 mod display;
 mod error;
 mod filter;
+mod highlight;
 mod input;
 mod pager;
 
@@ -12,6 +13,7 @@ use cli::Args;
 use display::Document;
 use error::{MatError, EXIT_SUCCESS};
 use filter::{grep_filter, GrepOptions};
+use highlight::{apply_search_highlight, SearchState};
 use input::{determine_input_source, load_content};
 use pager::{filter_line_range, parse_line_range, print_document, run_pager};
 
@@ -42,6 +44,12 @@ fn run(args: Args) -> Result<(), MatError> {
         document = grep_filter(&document, &grep_options);
     }
 
+    // Apply search highlighting if specified
+    let search_state = SearchState::from_args(&args)?;
+    if let Some(ref state) = search_state {
+        apply_search_highlight(&mut document, &state.pattern);
+    }
+
     // Run pager or print directly
     if args.no_pager {
         print_document(&document, args.line_numbers).map_err(|e| MatError::Io {
@@ -49,7 +57,7 @@ fn run(args: Args) -> Result<(), MatError> {
             path: std::path::PathBuf::from("stdout"),
         })?;
     } else {
-        run_pager(document, &args)?;
+        run_pager(document, &args, search_state)?;
     }
 
     Ok(())
