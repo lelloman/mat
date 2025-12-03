@@ -48,6 +48,8 @@ struct MarkdownRenderer {
     list_ordered: Vec<bool>,
     /// Whether we just started a list item (for bullet/number prefix)
     needs_list_prefix: bool,
+    /// Current heading level (for adding underlines)
+    current_heading: Option<HeadingLevel>,
 }
 
 impl MarkdownRenderer {
@@ -63,6 +65,7 @@ impl MarkdownRenderer {
             list_counters: Vec::new(),
             list_ordered: Vec::new(),
             needs_list_prefix: false,
+            current_heading: None,
         }
     }
 
@@ -102,7 +105,14 @@ impl MarkdownRenderer {
                 if !self.current_line.is_empty() || !self.lines.is_empty() {
                     self.flush_line();
                 }
-                // Apply heading style without showing the # markers
+                // Store heading level for underline in end_tag
+                self.current_heading = Some(level);
+                // Add decorative prefix based on level
+                let (prefix, prefix_style) = self.heading_prefix(level);
+                if !prefix.is_empty() {
+                    self.add_styled_text(prefix, prefix_style);
+                }
+                // Apply heading style
                 let style = self.heading_style(level);
                 self.push_style(style);
             }
@@ -192,6 +202,22 @@ impl MarkdownRenderer {
             TagEnd::Heading(_) => {
                 self.pop_style();
                 self.flush_line();
+                // Add underline for H1 and H2
+                if let Some(level) = self.current_heading.take() {
+                    match level {
+                        HeadingLevel::H1 => {
+                            let style = SpanStyle::new().fg(Color::Magenta);
+                            self.add_styled_text(&"═".repeat(40), style);
+                            self.flush_line();
+                        }
+                        HeadingLevel::H2 => {
+                            let style = SpanStyle::new().fg(Color::Blue);
+                            self.add_styled_text(&"─".repeat(30), style);
+                            self.flush_line();
+                        }
+                        _ => {}
+                    }
+                }
                 // Add blank line after heading
                 self.lines.push(Line::plain(self.line_number, ""));
                 self.line_number += 1;
@@ -343,6 +369,17 @@ impl MarkdownRenderer {
             HeadingLevel::H4 => SpanStyle::new().fg(Color::Green).bold(),
             HeadingLevel::H5 => SpanStyle::new().fg(Color::Yellow).bold(),
             HeadingLevel::H6 => SpanStyle::new().fg(Color::White).bold(),
+        }
+    }
+
+    fn heading_prefix(&self, level: HeadingLevel) -> (&'static str, SpanStyle) {
+        match level {
+            HeadingLevel::H1 => ("██ ", SpanStyle::new().fg(Color::Magenta).bold()),
+            HeadingLevel::H2 => ("▌ ", SpanStyle::new().fg(Color::Blue).bold()),
+            HeadingLevel::H3 => ("▸ ", SpanStyle::new().fg(Color::Cyan).bold()),
+            HeadingLevel::H4 => ("• ", SpanStyle::new().fg(Color::Green).bold()),
+            HeadingLevel::H5 => ("◦ ", SpanStyle::new().fg(Color::Yellow).bold()),
+            HeadingLevel::H6 => ("· ", SpanStyle::new().fg(Color::White).bold()),
         }
     }
 
