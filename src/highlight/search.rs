@@ -124,12 +124,68 @@ pub fn highlight_style() -> SpanStyle {
 }
 
 /// Apply search highlighting to a document
+/// This overlays search highlights on top of existing styles (preserving grep highlights etc)
 pub fn apply_search_highlight(document: &mut Document, pattern: &Regex) {
-    let style = highlight_style();
+    let search_style = highlight_style();
 
     for line in &mut document.lines {
         let text = line.text();
-        let new_spans = highlight_line(&text, pattern, &style);
+        let matches: Vec<_> = pattern.find_iter(&text).collect();
+
+        if matches.is_empty() {
+            continue;
+        }
+
+        // Build new spans that preserve existing styles but overlay search highlights
+        let mut new_spans = Vec::new();
+        let mut char_offset = 0;
+
+        for span in &line.spans {
+            let span_start = char_offset;
+            let span_end = char_offset + span.text.len();
+
+            // Find matches that overlap with this span
+            let mut last_pos = 0;
+            for mat in &matches {
+                // Skip matches that don't overlap with this span
+                if mat.end() <= span_start || mat.start() >= span_end {
+                    continue;
+                }
+
+                // Calculate overlap within this span
+                let overlap_start = mat.start().saturating_sub(span_start).min(span.text.len());
+                let overlap_end = (mat.end() - span_start).min(span.text.len());
+
+                // Add text before the match (with original style)
+                if overlap_start > last_pos {
+                    new_spans.push(StyledSpan::new(
+                        &span.text[last_pos..overlap_start],
+                        span.style.clone(),
+                    ));
+                }
+
+                // Add matched text (with search highlight)
+                if overlap_end > overlap_start {
+                    new_spans.push(StyledSpan::new(
+                        &span.text[overlap_start..overlap_end],
+                        search_style.clone(),
+                    ));
+                }
+
+                last_pos = overlap_end;
+            }
+
+            // Add remaining text after last match (with original style)
+            if last_pos < span.text.len() {
+                new_spans.push(StyledSpan::new(
+                    &span.text[last_pos..],
+                    span.style.clone(),
+                ));
+            }
+
+            char_offset = span_end;
+        }
+
         if !new_spans.is_empty() {
             line.spans = new_spans;
         }

@@ -186,9 +186,10 @@ pub fn highlight_matches(text: &str, pattern: &Regex) -> Vec<StyledSpan> {
     let mut spans = Vec::new();
     let mut last_end = 0;
 
+    // Use cyan background for grep matches (different from search which uses yellow)
     let match_style = SpanStyle::default()
         .fg(ratatui::style::Color::Black)
-        .bg(ratatui::style::Color::Yellow);
+        .bg(ratatui::style::Color::Cyan);
     let normal_style = SpanStyle::default();
 
     for mat in pattern.find_iter(text) {
