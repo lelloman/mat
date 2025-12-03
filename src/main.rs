@@ -1,4 +1,5 @@
 mod cli;
+mod display;
 mod error;
 mod input;
 
@@ -6,6 +7,7 @@ use clap::Parser;
 use std::process::ExitCode;
 
 use cli::Args;
+use display::Document;
 use error::{MatError, EXIT_SUCCESS};
 use input::{determine_input_source, load_content};
 
@@ -22,16 +24,20 @@ fn run(args: Args) -> Result<(), MatError> {
     // Load content
     let content = load_content(source, &args)?;
 
-    // Print content info for testing
-    eprintln!("Source: {}", content.source_name);
-    eprintln!("Encoding: {}", content.encoding);
-    eprintln!("Extension: {:?}", content.extension);
-    eprintln!("Is Markdown: {}", content.is_markdown);
-    eprintln!("Content length: {} bytes", content.text.len());
+    // Create document
+    let document = Document::from_text(&content.text, content.source_name, content.encoding);
+
+    // Print document info for testing
+    eprintln!("Source: {}", document.source_name);
+    eprintln!("Encoding: {}", document.encoding);
+    eprintln!("Lines: {}", document.line_count());
+    eprintln!("Max width: {}", document.max_line_width);
     eprintln!("---");
 
     // For now, just print the content
-    print!("{}", content.text);
+    for line in &document.lines {
+        println!("{}", line.text());
+    }
 
     Ok(())
 }
