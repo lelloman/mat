@@ -30,6 +30,19 @@ static DETECTED_THEME: Lazy<Theme> = Lazy::new(detect_terminal_theme);
 
 /// Detect the terminal's color scheme (light or dark)
 fn detect_terminal_theme() -> Theme {
+    use std::io::IsTerminal;
+
+    // Skip terminal detection if stdout is not a TTY (e.g., in tests or pipes)
+    // This prevents terminal escape sequences from corrupting non-TTY streams
+    if !std::io::stdout().is_terminal() {
+        return Theme::Dark;
+    }
+
+    // Also skip if TERM is "dumb" (common in test environments)
+    if std::env::var("TERM").map(|t| t == "dumb").unwrap_or(false) {
+        return Theme::Dark;
+    }
+
     // Try using terminal-light to detect the background
     match terminal_light::background_color() {
         Ok(color) => {
