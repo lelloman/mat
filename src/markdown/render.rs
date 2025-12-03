@@ -222,6 +222,9 @@ impl MarkdownRenderer {
                 if let Some(level) = self.current_heading.take() {
                     match level {
                         HeadingLevel::H1 => {
+                            // Add closing side border before flushing
+                            let side_style = SpanStyle::new().fg(Color::Yellow);
+                            self.add_styled_text("  ║", side_style);
                             self.flush_line();
                             // Bottom border for the frame
                             let border_style = SpanStyle::new().fg(Color::Yellow);

@@ -71,8 +71,9 @@ fn run(args: Args) -> Result<(), MatError> {
     // Determine theme for highlighting
     let theme = get_theme(args.theme.as_deref());
 
-    // Apply syntax highlighting if not disabled
-    if !args.no_highlight {
+    // Apply syntax highlighting if not disabled and not rendering markdown
+    // (markdown renderer already applies its own styling)
+    if !args.no_highlight && !should_render_markdown {
         apply_syntax_highlight(&mut document, args.language.as_deref(), theme);
     }
 
