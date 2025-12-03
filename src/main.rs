@@ -1,26 +1,37 @@
 mod cli;
 mod error;
+mod input;
 
 use clap::Parser;
 use std::process::ExitCode;
 
 use cli::Args;
 use error::{MatError, EXIT_SUCCESS};
+use input::{determine_input_source, load_content};
 
 fn run(args: Args) -> Result<(), MatError> {
-    // Stub: just print args for now
-    eprintln!("mat v{}", env!("CARGO_PKG_VERSION"));
-    eprintln!("Args: {:?}", args);
-
-    // Check if file exists (placeholder logic)
-    if let Some(ref path) = args.file {
-        if path.as_os_str() != "-" && !path.exists() {
-            return Err(MatError::Io {
-                source: std::io::Error::new(std::io::ErrorKind::NotFound, "file not found"),
-                path: path.clone(),
-            });
+    // Determine input source
+    let source = match determine_input_source(&args) {
+        Some(s) => s,
+        None => {
+            eprintln!("mat: No input file specified. Use 'mat <file>' or pipe data to stdin.");
+            return Ok(());
         }
-    }
+    };
+
+    // Load content
+    let content = load_content(source, &args)?;
+
+    // Print content info for testing
+    eprintln!("Source: {}", content.source_name);
+    eprintln!("Encoding: {}", content.encoding);
+    eprintln!("Extension: {:?}", content.extension);
+    eprintln!("Is Markdown: {}", content.is_markdown);
+    eprintln!("Content length: {} bytes", content.text.len());
+    eprintln!("---");
+
+    // For now, just print the content
+    print!("{}", content.text);
 
     Ok(())
 }
