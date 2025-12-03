@@ -11,47 +11,59 @@ A Rust CLI tool combining cat, less, grep functionality with markdown rendering 
 ### Usage
 
 ```
-mat [OPTIONS] [FILE]
+mat [OPTIONS] <FILE>   # single file only
 mat [OPTIONS] -        # explicit stdin
 cat file | mat         # implicit stdin
 ```
 
 ### Options
 
-| Flag | Long                | Arg      | Description                                     |
-| ---- | ------------------- | -------- | ----------------------------------------------- |
-| `-n` | `--no-line-numbers` |          | Hide line numbers                               |
-| `-N` | `--no-highlight`    |          | Disable syntax highlighting                     |
-| `-m` | `--markdown`        |          | Force markdown rendering                        |
-| `-M` | `--no-markdown`     |          | Disable markdown auto-detection                 |
-| `-f` | `--follow`          |          | Follow mode (tail -f style)                     |
-| `-s` | `--search`          | `<PAT>`  | Highlight pattern matches                       |
-| `-g` | `--grep`            | `<PAT>`  | Filter to matching lines                        |
-| `-i` | `--ignore-case`     |          | Case-insensitive for search/grep                |
-| `-A` | `--after`           | `<N>`    | Lines after grep match                          |
-| `-B` | `--before`          | `<N>`    | Lines before grep match                         |
-| `-C` | `--context`         | `<N>`    | Lines before+after grep match                   |
-| `-w` | `--wrap`            | `<MODE>` | Line wrap: wrap, truncate, none (default: wrap) |
-| `-W` | `--max-width`       | `<N>`    | Max line width before truncation (default: 200) |
-|      | `--force-binary`    |          | Force display of binary files                   |
-| `-V` | `--version`         |          | Show version                                    |
-| `-h` | `--help`            |          | Show help                                       |
+| Flag | Long                | Arg        | Description                                     |
+| ---- | ------------------- | ---------- | ----------------------------------------------- |
+| `-n` | `--line-numbers`    |            | Show line numbers (off by default)              |
+| `-N` | `--no-highlight`    |            | Disable syntax highlighting                     |
+| `-m` | `--markdown`        |            | Force markdown rendering                        |
+| `-M` | `--no-markdown`     |            | Disable markdown auto-detection                 |
+| `-f` | `--follow`          |            | Follow mode (tail -f style)                     |
+| `-s` | `--search`          | `<PAT>`    | Highlight pattern matches                       |
+| `-g` | `--grep`            | `<PAT>`    | Filter to matching lines                        |
+| `-i` | `--ignore-case`     |            | Case-insensitive for search/grep                |
+| `-F` | `--fixed-strings`   |            | Treat pattern as literal string, not regex      |
+| `-w` | `--word-regexp`     |            | Match whole words only                          |
+| `-x` | `--line-regexp`     |            | Match whole lines only                          |
+| `-A` | `--after`           | `<N>`      | Lines after grep match                          |
+| `-B` | `--before`          | `<N>`      | Lines before grep match                         |
+| `-C` | `--context`         | `<N>`      | Lines before+after grep match                   |
+|      | `--wrap`            | `<MODE>`   | Line wrap: none, wrap, truncate (default: none) |
+| `-W` | `--max-width`       | `<N>`      | Max line width before truncation (default: 200) |
+| `-l` | `--language`        | `<LANG>`   | Force syntax highlighting language              |
+| `-t` | `--theme`           | `<NAME>`   | Select color theme                              |
+| `-L` | `--lines`           | `<RANGE>`  | Show line range: 50:100, :100, 50:, or 50       |
+| `-P` | `--no-pager`        |            | Direct output, skip TUI                         |
+|      | `--ansi`            |            | Preserve ANSI escape codes in input             |
+|      | `--force-binary`    |            | Force display of binary files                   |
+| `-V` | `--version`         |            | Show version                                    |
+| `-h` | `--help`            |            | Show help                                       |
 
 ### Pager Keybindings
 
-| Key               | Action                |
-| ----------------- | --------------------- |
-| `j` / `↓`         | Scroll down one line  |
-| `k` / `↑`         | Scroll up one line    |
-| `d` / `Page Down` | Scroll down half page |
-| `u` / `Page Up`   | Scroll up half page   |
-| `g` / `Home`      | Go to top             |
-| `G` / `End`       | Go to bottom          |
-| `/`               | Open search prompt    |
-| `n`               | Next search match     |
-| `N`               | Previous search match |
-| `f`               | Toggle follow mode    |
-| `q` / `Esc`       | Quit                  |
+| Key               | Action                 |
+| ----------------- | ---------------------- |
+| `j` / `↓`         | Scroll down one line   |
+| `k` / `↑`         | Scroll up one line     |
+| `h` / `←`         | Scroll left            |
+| `l` / `→`         | Scroll right           |
+| `d` / `Page Down` | Scroll down half page  |
+| `u` / `Page Up`   | Scroll up half page    |
+| `0`               | Scroll to line start   |
+| `$`               | Scroll to line end     |
+| `g` / `Home`      | Go to top              |
+| `G` / `End`       | Go to bottom           |
+| `/`               | Open search prompt     |
+| `n`               | Next search match      |
+| `N`               | Previous search match  |
+| `f`               | Toggle follow mode     |
+| `q` / `Esc`       | Quit                   |
 
 ---
 
@@ -62,17 +74,21 @@ cat file | mat         # implicit stdin
 ```
 Input Source (file/stdin)
     ↓
+Binary Detection (warn/exit or continue)
+    ↓
+Encoding Detection (UTF-8, Latin-1, etc.)
+    ↓
 Content Buffer (String + metadata)
     ↓
-Grep Filter (optional, with context)
+Markdown Renderer (if applicable)
+    ↓
+Grep Filter (optional, with context) [operates on rendered output]
     ↓
 Line Collection (Vec<Line> with line numbers, match info)
     ↓
-Syntax Highlighter (syntect)
+Syntax Highlighter (syntect) [visible lines + buffer only]
     ↓
-Search Highlighter (overlay on syntax)
-    ↓
-Markdown Renderer (if applicable)
+Search Highlighter (overlay on syntax) [operates on rendered output]
     ↓
 Display Renderer (line numbers, final styling)
     ↓
@@ -85,12 +101,14 @@ Pager TUI (ratatui)
 src/
 ├── main.rs              # Entry point, CLI setup
 ├── cli.rs               # Clap argument definitions
+├── error.rs             # Error types (defined early)
 ├── input/
 │   ├── mod.rs
 │   ├── file.rs          # File reading
 │   ├── stdin.rs         # Stdin buffering
 │   ├── follow.rs        # Follow mode (tail -f)
 │   ├── binary.rs        # Binary file detection
+│   ├── encoding.rs      # Encoding detection
 │   └── large.rs         # Large file lazy loading (mmap)
 ├── filter/
 │   ├── mod.rs
@@ -121,37 +139,41 @@ src/
 
 ## Implementation Phases
 
-### Phase 1: Project Setup & CLI
+### Phase 1: Project Setup, CLI & Error Types
 
 - [ ] **Status: Not Started**
 
-**Goal:** Bootable project with argument parsing
+**Goal:** Bootable project with argument parsing and proper error handling foundation
 
 **Tasks:**
 
 1. Initialize Cargo project with workspace
 2. Add dependencies to Cargo.toml
-3. Create `cli.rs` with clap derive structs
-4. Create `main.rs` skeleton
+3. Create `error.rs` with custom error types using thiserror
+4. Create `cli.rs` with clap derive structs
+5. Create `main.rs` skeleton with error propagation
 
-**Deliverable:** `mat --help` works
+**Deliverable:** `mat --help` works, error types defined
 
 ---
 
-### Phase 2: Input Handling
+### Phase 2: Input Handling & Binary Detection
 
 - [ ] **Status: Not Started**
 
-**Goal:** Read content from file or stdin
+**Goal:** Read content from file or stdin, detect binary files and encoding
 
 **Tasks:**
 
 1. Create `input/mod.rs` with `InputSource` enum
 2. Implement `input/file.rs`: Read file, detect extension
 3. Implement `input/stdin.rs`: Buffer stdin, detect piped input
-4. Create `Content` struct with text, source_name, extension, is_markdown
+4. Implement `input/binary.rs`: Detect binary content (null bytes, non-printable chars)
+5. Implement `input/encoding.rs`: Detect and handle UTF-8, Latin-1, UTF-8 BOM
+6. Create `Content` struct with text, source_name, extension, is_markdown
+7. Handle `--force-binary` and `--ansi` flags
 
-**Deliverable:** Can load and identify content from file/stdin
+**Deliverable:** Can load and identify content, binary detection works, encoding handled
 
 ---
 
@@ -174,16 +196,20 @@ src/
 
 - [ ] **Status: Not Started**
 
-**Goal:** Scrollable full-terminal view
+**Goal:** Scrollable full-terminal view with horizontal scrolling
 
 **Tasks:**
 
-1. Create `pager/app.rs` with App struct
-2. Create `pager/ui.rs`: Render lines, line number gutter, status bar
-3. Create `pager/input.rs`: j/k, arrows, g/G, d/u, q keybindings
+1. Create `pager/app.rs` with App struct (scroll position: line + column)
+2. Create `pager/ui.rs`: Render lines, line number gutter (with line position), status bar (file, mode, col info)
+3. Create `pager/input.rs`: j/k/h/l, arrows, g/G, 0/$, d/u, q keybindings
 4. Main event loop in `pager/mod.rs`
+5. Implement horizontal scrolling (default: no wrap)
+6. Implement `--lines` flag for line range selection (formats: X:Y, :Y, X:, X)
+7. Implement `--no-pager` flag for direct output
+8. Use alternate screen buffer, handle Ctrl+C for clean exit
 
-**Deliverable:** Basic pager viewing plain text files with scrolling
+**Deliverable:** Basic pager viewing plain text files with vertical + horizontal scrolling
 
 ---
 
@@ -204,7 +230,7 @@ src/
 
 ---
 
-### Phase 6: Search Highlighting
+### Phase 6: Search Highlighting & Navigation
 
 - [ ] **Status: Not Started**
 
@@ -222,7 +248,45 @@ src/
 
 ---
 
-### Phase 7: Interactive Search
+### Phase 7: Theme Detection
+
+- [ ] **Status: Not Started**
+
+**Goal:** Auto-detect terminal theme for proper color schemes
+
+**Tasks:**
+
+1. Create `theme/detect.rs` with terminal-light integration
+2. Define light/dark theme variants
+3. Create coherent color schemes for all UI elements
+4. Implement `--theme` flag for manual override
+5. Use once_cell for lazy theme initialization
+
+**Deliverable:** Theme auto-detection works, `--theme` override available
+
+---
+
+### Phase 8: Syntax Highlighting
+
+- [ ] **Status: Not Started**
+
+**Goal:** Language-aware code coloring
+
+**Tasks:**
+
+1. Create `highlight/syntax.rs` with apply_syntax_highlight function
+2. Initialize syntect with default themes (lazy via once_cell)
+3. Map syntect styles → ratatui styles
+4. Handle unknown languages gracefully (plain text fallback)
+5. Implement `--language` flag for manual override
+6. Only highlight visible lines + buffer for performance
+7. Cache highlighted results
+
+**Deliverable:** Code files show syntax highlighting
+
+---
+
+### Phase 9: Interactive Search
 
 - [ ] **Status: Not Started**
 
@@ -238,25 +302,7 @@ src/
 
 ---
 
-### Phase 8: Syntax Highlighting
-
-- [ ] **Status: Not Started**
-
-**Goal:** Language-aware code coloring
-
-**Tasks:**
-
-1. Create `highlight/syntax.rs` with apply_syntax_highlight function
-2. Initialize syntect with default themes
-3. Map syntect styles → ratatui styles
-4. Handle unknown languages gracefully (plain text fallback)
-5. Integrate theme detection with terminal-light
-
-**Deliverable:** Code files show syntax highlighting
-
----
-
-### Phase 9: Markdown Rendering
+### Phase 10: Markdown Rendering
 
 - [ ] **Status: Not Started**
 
@@ -273,7 +319,7 @@ src/
 
 ---
 
-### Phase 10: Follow Mode
+### Phase 11: Follow Mode
 
 - [ ] **Status: Not Started**
 
@@ -292,38 +338,22 @@ src/
 
 ---
 
-### Phase 11: Theme Detection & Polish
+### Phase 12: Line Handling & Polish
 
 - [ ] **Status: Not Started**
 
-**Goal:** Auto-detect terminal theme, polish UI
+**Goal:** Handle wrap modes, polish UI
 
 **Tasks:**
 
-1. Create `theme/detect.rs` with terminal-light integration
-2. Create coherent color schemes for all UI elements
-3. Handle terminal resize events
-4. Add `--version` flag
-5. Error messages for invalid files/patterns
+1. Implement WrapMode enum: None (default), Wrap, Truncate
+2. Implement `--wrap` flag to switch modes
+3. Use unicode-width for correct character width calculation
+4. Handle terminal resize events
+5. Add `--version` flag
+6. Error messages for invalid files/patterns
 
-**Deliverable:** Polished, theme-aware UI
-
----
-
-### Phase 12: Binary Detection & Line Handling
-
-- [ ] **Status: Not Started**
-
-**Goal:** Handle binary files and long lines properly
-
-**Tasks:**
-
-1. Create `input/binary.rs` with is_binary function
-2. Exit with warning by default, `--force-binary` to override
-3. Implement WrapMode: Wrap, Truncate, None
-4. Use unicode-width for correct character width calculation
-
-**Deliverable:** Binary detection works, long lines handled correctly
+**Deliverable:** Wrap modes working, polished UI
 
 ---
 
@@ -345,21 +375,114 @@ src/
 
 ---
 
-### Phase 14: Integration & Polish
+### Phase 14: Integration, Edge Cases & Testing
 
 - [ ] **Status: Not Started**
 
-**Goal:** Ensure all features work together seamlessly
+**Goal:** Ensure all features work together seamlessly, comprehensive tests
 
 **Tasks:**
 
 1. Test combinations: grep+search+syntax, markdown+search, follow+grep, stdin+all, large file+all
-2. Handle edge cases: Empty files, mixed line endings, Unicode, terminal resize
-3. Add comprehensive error handling
-4. Polish status bar and UI elements
-5. Write helpful `--help` descriptions
+2. Address all edge cases (see Edge Cases section below)
+3. Polish status bar and UI elements
+4. Write helpful `--help` descriptions
+5. Implement full test suite (see Testing Strategy)
 
 **Deliverable:** Robust, production-ready tool
+
+---
+
+## Testing Strategy
+
+### Directory Structure
+
+```
+tests/
+├── integration/
+│   ├── cli_test.rs          # Full CLI argument tests
+│   ├── pager_test.rs        # Pager behavior tests
+│   ├── grep_test.rs         # Grep filtering tests
+│   ├── markdown_test.rs     # Markdown rendering tests
+│   └── large_file_test.rs   # Large file handling tests
+├── fixtures/
+│   ├── code/                # Sample source files (various languages)
+│   ├── markdown/            # Sample markdown files
+│   ├── binary/              # Binary file samples
+│   ├── large/               # Large file samples (generated)
+│   ├── edge_cases/          # Edge case files
+│   └── encodings/           # Various encoding samples
+└── unit/                    # Unit tests (inline in modules)
+```
+
+### Testing Approach
+
+1. **Unit tests:** Inline in each module using `#[cfg(test)]`
+2. **Integration tests:** Full CLI invocation tests in `tests/integration/`
+3. **Fixtures:** Pre-made test files for consistent testing
+4. **Property-based testing:** Consider proptest for edge cases
+5. **Snapshot testing:** For markdown rendering output
+
+### Key Test Scenarios
+
+- All CLI flag combinations
+- Empty files, single-line files, huge files
+- All supported encodings
+- Binary detection accuracy
+- Grep with context edge cases
+- Search highlighting correctness
+- Markdown rendering fidelity
+- Terminal resize handling
+- Follow mode updates
+
+---
+
+## Edge Cases & Known Concerns
+
+### Input Handling
+- [ ] Stdin + follow mode: Should error with clear message
+- [ ] Very long single line (e.g., 10MB single line): Handle gracefully
+- [ ] Mixed line endings (CR, LF, CRLF in same file): Normalize
+- [ ] Empty files: Display empty pager or message
+- [ ] Files with only whitespace: Handle correctly
+
+### Character Handling
+- [ ] CJK characters: Test unicode-width thoroughly
+- [ ] Emoji (multi-codepoint): Correct width calculation
+- [ ] RTL text: Best-effort display (no full RTL support)
+- [ ] Zero-width characters: Handle/strip appropriately
+- [ ] Combining characters: Correct width calculation
+
+### ANSI & Special Content
+- [ ] ANSI escape codes: Strip by default, preserve with `--ansi`
+- [ ] Tab characters: Expand to spaces (configurable width?)
+- [ ] Control characters: Display placeholder or strip
+
+### Markdown Rendering
+- [ ] Footnotes: Render or skip gracefully
+- [ ] HTML in markdown: Strip tags, render text content
+- [ ] Images: Show `[alt text]` or `(image: filename)`
+- [ ] Nested code blocks (fenced inside lists): Handle correctly
+- [ ] Task lists (`- [ ]` checkboxes): Render as checkboxes
+- [ ] Very deep nesting: Limit depth, handle gracefully
+- [ ] Tables with wide content: Truncate or wrap cells
+
+### Large Files
+- [ ] Large file + grep: Stream/filter before loading all
+- [ ] Large file + syntax highlighting: Only visible lines
+- [ ] Line count threshold: Consider files with few very long lines
+
+### Pattern/Regex Handling
+- [ ] Invalid regex: Show clear error with syntax position
+- [ ] Empty pattern: Error with helpful message ("did you mean to omit -s/-g?")
+- [ ] Very complex regex: May be slow, but regex crate guarantees linear time
+
+### Error Conditions
+- [ ] File not found: Clear error message
+- [ ] Permission denied: Clear error message
+- [ ] Invalid regex pattern: Clear error message with position
+- [ ] Invalid encoding: Fallback or error
+- [ ] Disk full during follow: Handle gracefully
 
 ---
 
@@ -380,9 +503,18 @@ pulldown-cmark = "0.12"
 terminal-light = "1"
 regex = "1"
 anyhow = "1"
-memmap2 = "0.9"          # Memory-mapped files for large file support
-unicode-width = "0.2"    # Correct character width calculation
-lru = "0.12"             # LRU cache for lazy-loaded lines
+thiserror = "1"              # Custom error types
+once_cell = "1"              # Lazy initialization for syntect
+memmap2 = "0.9"              # Memory-mapped files for large file support
+unicode-width = "0.2"        # Correct character width calculation
+lru = "0.12"                 # LRU cache for lazy-loaded lines
+encoding_rs = "0.8"          # Encoding detection
+
+[dev-dependencies]
+tempfile = "3"               # Temporary files for tests
+assert_cmd = "2"             # CLI testing
+predicates = "3"             # Assertion helpers
+proptest = "1"               # Property-based testing
 ```
 
 ---
@@ -391,45 +523,97 @@ lru = "0.12"             # LRU cache for lazy-loaded lines
 
 ### 1. Styling Pipeline
 
-Syntax highlighting runs first, then search highlighting overlays on top. This ensures search matches are visible even in syntax-highlighted code.
+Markdown rendering runs first (if applicable), then syntax highlighting, then search highlighting overlays on top. This ensures search matches are visible and search/grep operate on rendered content.
 
 ### 2. Line Number Preservation
 
 When grep filters lines, original line numbers are preserved. Context lines show their real line numbers, not sequential indices.
 
-### 3. Markdown + Search Interaction
+### 3. Markdown + Search/Grep Interaction
 
-Search operates on the **rendered** markdown output, not raw markdown. This means searching for "header" finds rendered header text, not `# header`.
+Both search and grep operate on the **rendered** markdown output, not raw markdown. This means searching for "header" finds rendered header text, not `# header`.
 
 ### 4. Memory Model
 
-- Files: Read entirely into memory (simplifies implementation)
-- Large files (>10MB): Memory-mapped with lazy loading
+- Files <10MB: Read entirely into memory
+- Files >10MB: Memory-mapped with lazy loading
 - Stdin: Fully buffered (required for paging)
 
-### 5. Long Lines
+### 5. Syntax Highlighting Performance
 
-- Default: Wrap at terminal width
-- Hard truncation at 200 chars (configurable via `--max-width`)
-- Modes: `wrap` (default), `truncate`, `none`
+- Only highlight visible lines + small buffer
+- Cache highlighted results in LRU cache
+- Lazy initialization of syntect via once_cell
 
-### 6. Binary Files
+### 6. Long Lines & Horizontal Scrolling
+
+- **Default:** No wrap, horizontal scrolling enabled
+- Status bar shows total columns (max line width) so user knows if content extends beyond view
+- Horizontal scroll keys: `h`/`l`, `←`/`→`, `0` (start), `$` (end)
+- **Wrap modes:**
+  - `none` (default): Horizontal scrolling
+  - `wrap`: Wrap at terminal width
+  - `truncate`: Cut lines at `--max-width` (default: 200 chars)
+
+### 7. Binary Files
 
 - Detect binary content (null bytes, high proportion of non-printable chars)
 - Default: Warn and exit
 - Override with `--force-binary` flag
 
-### 7. Large Files
+### 8. ANSI Escape Codes
 
-- Implement streaming/lazy loading for files >10MB
-- Only load visible portion + buffer
-- Memory-map for random access
+- Default: Strip ANSI escape codes from input
+- Preserve with `--ansi` flag
 
-### 8. Markdown Tables
+### 9. Encoding
 
-- Full table rendering with box-drawing characters
-- Auto-detect column widths
-- Handle overflow gracefully
+- Detect encoding using encoding_rs
+- Support UTF-8 (with/without BOM), Latin-1
+- Fallback to lossy UTF-8 conversion
+
+### 10. Line Numbers
+
+- Off by default (unlike some pagers)
+- Enable with `-n` / `--line-numbers` (matches grep convention)
+
+### 11. Pattern Matching (Regex)
+
+- **Default:** Patterns are regex (matches grep/ripgrep convention)
+- **Flavor:** Rust `regex` crate (RE2-like syntax)
+  - Fast and safe (guaranteed linear time)
+  - No backreferences
+  - No lookahead/lookbehind
+  - Unicode-aware by default
+- **Literal mode:** Use `-F` / `--fixed-strings` for literal matching
+- **Modifiers:**
+  - `-i` for case-insensitive
+  - `-w` for whole-word matching (wraps pattern in `\b...\b`)
+  - `-x` for whole-line matching (wraps pattern in `^...$`)
+- **Errors:** Invalid regex shows clear error with syntax position
+
+### 12. Status Bar
+
+The status bar (bottom of screen) displays:
+- **Left:** File path or `stdin`
+- **Center:** Mode indicators: `[FOLLOW]`, `[SEARCH: pattern]`
+- **Right:** `Col X/Y` (current column / max columns), encoding (if non-UTF-8)
+
+Line position (current line / total lines) is shown in the left gutter alongside line numbers.
+
+### 13. Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0`  | Success |
+| `1`  | General error (file not found, permission denied, I/O error) |
+| `2`  | Invalid arguments (bad regex, invalid flags, invalid line range) |
+
+### 14. Terminal Behavior
+
+- **Alternate screen:** Uses alternate screen buffer (like `less`), terminal restored on exit
+- **Ctrl+C:** Clean exit, restores terminal state
+- **SIGPIPE:** When using `--no-pager`, gracefully handle downstream pipe closure (e.g., `mat file | head`)
 
 ---
 
@@ -438,5 +622,7 @@ Search operates on the **rendered** markdown output, not raw markdown. This mean
 | Milestone            | After Phase | Description                          |
 | -------------------- | ----------- | ------------------------------------ |
 | **MVP**              | 4           | Working pager with scrolling         |
-| **Feature Complete** | 11          | All core features implemented        |
+| **Searchable**       | 6           | Search highlighting working          |
+| **Pretty**           | 10          | Syntax + markdown rendering          |
+| **Feature Complete** | 13          | All core features implemented        |
 | **Production Ready** | 14          | Robust, polished, edge cases handled |
