@@ -105,12 +105,29 @@ impl MarkdownRenderer {
                 if !self.current_line.is_empty() || !self.lines.is_empty() {
                     self.flush_line();
                 }
-                // Store heading level for underline in end_tag
+                // Store heading level for decorations in end_tag
                 self.current_heading = Some(level);
-                // Add decorative prefix based on level
-                let (prefix, prefix_style) = self.heading_prefix(level);
-                if !prefix.is_empty() {
-                    self.add_styled_text(prefix, prefix_style);
+
+                // Add top border for H1
+                if level == HeadingLevel::H1 {
+                    let border_style = SpanStyle::new().fg(Color::Yellow);
+                    self.add_styled_text("╔", border_style.clone());
+                    self.add_styled_text(&"═".repeat(50), border_style.clone());
+                    self.add_styled_text("╗", border_style);
+                    self.flush_line();
+                    // Add side border prefix
+                    let side_style = SpanStyle::new().fg(Color::Yellow);
+                    self.add_styled_text("║  ", side_style);
+                } else if level == HeadingLevel::H2 {
+                    // H2 gets inline prefix decoration
+                    let decor_style = SpanStyle::new().fg(Color::Blue);
+                    self.add_styled_text("──◈ ", decor_style);
+                } else {
+                    // Other levels get simple prefix
+                    let (prefix, prefix_style) = self.heading_prefix(level);
+                    if !prefix.is_empty() {
+                        self.add_styled_text(prefix, prefix_style);
+                    }
                 }
                 // Apply heading style
                 let style = self.heading_style(level);
@@ -201,22 +218,31 @@ impl MarkdownRenderer {
         match tag_end {
             TagEnd::Heading(_) => {
                 self.pop_style();
-                self.flush_line();
-                // Add underline for H1 and H2
+                // Add decorations based on heading level
                 if let Some(level) = self.current_heading.take() {
                     match level {
                         HeadingLevel::H1 => {
-                            let style = SpanStyle::new().fg(Color::Magenta);
-                            self.add_styled_text(&"═".repeat(40), style);
+                            self.flush_line();
+                            // Bottom border for the frame
+                            let border_style = SpanStyle::new().fg(Color::Yellow);
+                            self.add_styled_text("╚", border_style.clone());
+                            self.add_styled_text(&"═".repeat(50), border_style.clone());
+                            self.add_styled_text("╝", border_style);
                             self.flush_line();
                         }
                         HeadingLevel::H2 => {
-                            let style = SpanStyle::new().fg(Color::Blue);
-                            self.add_styled_text(&"─".repeat(30), style);
+                            // Trailing decoration on same line
+                            let decor_style = SpanStyle::new().fg(Color::Blue);
+                            self.add_styled_text(" ◈", decor_style.clone());
+                            self.add_styled_text(&"─".repeat(30), decor_style);
                             self.flush_line();
                         }
-                        _ => {}
+                        _ => {
+                            self.flush_line();
+                        }
                     }
+                } else {
+                    self.flush_line();
                 }
                 // Add blank line after heading
                 self.lines.push(Line::plain(self.line_number, ""));
@@ -363,23 +389,24 @@ impl MarkdownRenderer {
 
     fn heading_style(&self, level: HeadingLevel) -> SpanStyle {
         match level {
-            HeadingLevel::H1 => SpanStyle::new().fg(Color::Magenta).bold(),
-            HeadingLevel::H2 => SpanStyle::new().fg(Color::Blue).bold(),
-            HeadingLevel::H3 => SpanStyle::new().fg(Color::Cyan).bold(),
-            HeadingLevel::H4 => SpanStyle::new().fg(Color::Green).bold(),
+            HeadingLevel::H1 => SpanStyle::new().fg(Color::White).bold(),
+            HeadingLevel::H2 => SpanStyle::new().fg(Color::Cyan).bold(),
+            HeadingLevel::H3 => SpanStyle::new().fg(Color::Green).bold(),
+            HeadingLevel::H4 => SpanStyle::new().fg(Color::Magenta).bold(),
             HeadingLevel::H5 => SpanStyle::new().fg(Color::Yellow).bold(),
-            HeadingLevel::H6 => SpanStyle::new().fg(Color::White).bold(),
+            HeadingLevel::H6 => SpanStyle::new().fg(Color::DarkGray).bold(),
         }
     }
 
     fn heading_prefix(&self, level: HeadingLevel) -> (&'static str, SpanStyle) {
+        // H1 and H2 are handled separately with frames/decorations
         match level {
-            HeadingLevel::H1 => ("██ ", SpanStyle::new().fg(Color::Magenta).bold()),
-            HeadingLevel::H2 => ("▌ ", SpanStyle::new().fg(Color::Blue).bold()),
-            HeadingLevel::H3 => ("▸ ", SpanStyle::new().fg(Color::Cyan).bold()),
-            HeadingLevel::H4 => ("• ", SpanStyle::new().fg(Color::Green).bold()),
-            HeadingLevel::H5 => ("◦ ", SpanStyle::new().fg(Color::Yellow).bold()),
-            HeadingLevel::H6 => ("· ", SpanStyle::new().fg(Color::White).bold()),
+            HeadingLevel::H1 => ("", SpanStyle::default()),
+            HeadingLevel::H2 => ("", SpanStyle::default()),
+            HeadingLevel::H3 => ("▸ ", SpanStyle::new().fg(Color::Green).bold()),
+            HeadingLevel::H4 => ("◆ ", SpanStyle::new().fg(Color::Magenta).bold()),
+            HeadingLevel::H5 => ("◇ ", SpanStyle::new().fg(Color::Yellow).bold()),
+            HeadingLevel::H6 => ("· ", SpanStyle::new().fg(Color::DarkGray).bold()),
         }
     }
 
@@ -444,8 +471,9 @@ mod tests {
         let doc = render_markdown(md, "test.md".to_string());
 
         assert!(!doc.lines.is_empty(), "Document should have lines");
-        let text = doc.lines[0].text();
-        assert!(text.contains("Hello World"), "Expected 'Hello World' in '{}'", text);
+        // H1 now has a frame, so "Hello World" is on line 1 (after top border)
+        let all_text: String = doc.lines.iter().map(|l| l.text()).collect();
+        assert!(all_text.contains("Hello World"), "Expected 'Hello World' in document");
     }
 
     #[test]
