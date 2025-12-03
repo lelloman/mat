@@ -41,6 +41,41 @@ pub struct Content {
     pub encoding: String,
 }
 
+/// Expand tabs to spaces with proper alignment
+pub fn expand_tabs(text: &str, tab_width: usize) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut column = 0;
+
+    for ch in text.chars() {
+        match ch {
+            '\t' => {
+                // Calculate spaces needed to reach next tab stop
+                let spaces_needed = tab_width - (column % tab_width);
+                for _ in 0..spaces_needed {
+                    result.push(' ');
+                }
+                column += spaces_needed;
+            }
+            '\n' => {
+                result.push('\n');
+                column = 0;
+            }
+            '\r' => {
+                result.push('\r');
+                // Don't reset column for CR (will be followed by LF)
+            }
+            _ => {
+                result.push(ch);
+                // Handle wide characters
+                let width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1);
+                column += width;
+            }
+        }
+    }
+
+    result
+}
+
 /// Strips ANSI escape sequences from text
 pub fn strip_ansi(text: &str) -> String {
     // Match ANSI escape sequences: ESC [ ... m (SGR) and other CSI sequences
@@ -103,6 +138,9 @@ pub fn load_content(source: InputSource, args: &Args) -> Result<Content, MatErro
     // Strip ANSI unless --ansi flag is set
     let text = if args.ansi { text } else { strip_ansi(&text) };
 
+    // Expand tabs to spaces (4 spaces per tab)
+    let text = expand_tabs(&text, 4);
+
     // Determine if markdown
     let is_markdown = if args.no_markdown {
         false
@@ -131,5 +169,45 @@ pub fn determine_input_source(args: &Args) -> Option<InputSource> {
         Some(path) => Some(InputSource::File(path.clone())),
         None if is_stdin_piped() => Some(InputSource::Stdin),
         None => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_expand_tabs_basic() {
+        assert_eq!(expand_tabs("a\tb", 4), "a   b");
+        assert_eq!(expand_tabs("ab\tc", 4), "ab  c");
+        assert_eq!(expand_tabs("abc\td", 4), "abc d");
+        assert_eq!(expand_tabs("abcd\te", 4), "abcd    e");
+    }
+
+    #[test]
+    fn test_expand_tabs_multiline() {
+        assert_eq!(expand_tabs("a\tb\nc\td", 4), "a   b\nc   d");
+    }
+
+    #[test]
+    fn test_expand_tabs_custom_width() {
+        assert_eq!(expand_tabs("a\tb", 2), "a b");
+        assert_eq!(expand_tabs("ab\tc", 2), "ab  c");
+    }
+
+    #[test]
+    fn test_strip_ansi_basic() {
+        // Color code (red)
+        assert_eq!(strip_ansi("\x1b[31mHello\x1b[0m"), "Hello");
+        // Bold
+        assert_eq!(strip_ansi("\x1b[1mBold\x1b[0m"), "Bold");
+        // Multiple codes
+        assert_eq!(strip_ansi("\x1b[1;31mRed Bold\x1b[0m"), "Red Bold");
+    }
+
+    #[test]
+    fn test_strip_ansi_preserves_normal_text() {
+        assert_eq!(strip_ansi("Hello World"), "Hello World");
+        assert_eq!(strip_ansi("No escape codes here"), "No escape codes here");
     }
 }

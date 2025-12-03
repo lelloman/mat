@@ -31,6 +31,11 @@ fn run(args: Args) -> Result<(), MatError> {
         }
     };
 
+    // Validate: follow mode requires a file, not stdin
+    if args.follow && matches!(source, input::InputSource::Stdin) {
+        return Err(MatError::FollowModeStdin);
+    }
+
     // Load content
     let content = load_content(source.clone(), &args)?;
 

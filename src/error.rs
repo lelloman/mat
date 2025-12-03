@@ -45,13 +45,19 @@ pub enum MatError {
     /// Encoding detection/conversion failed
     #[error("Failed to detect or convert encoding for '{path}'")]
     EncodingError { path: PathBuf },
+
+    /// Follow mode with stdin
+    #[error("Cannot use follow mode (-f) with stdin. Follow mode requires a file.")]
+    FollowModeStdin,
 }
 
 impl MatError {
     /// Returns the appropriate exit code for this error
     pub fn exit_code(&self) -> i32 {
         match self {
-            MatError::InvalidRegex { .. } | MatError::InvalidLineRange { .. } => EXIT_INVALID_ARGS,
+            MatError::InvalidRegex { .. }
+            | MatError::InvalidLineRange { .. }
+            | MatError::FollowModeStdin => EXIT_INVALID_ARGS,
             _ => EXIT_ERROR,
         }
     }
