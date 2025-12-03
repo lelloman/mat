@@ -20,7 +20,7 @@ use crate::error::MatError;
 use crate::highlight::SearchState;
 use crate::theme::{get_theme, ThemeColors};
 
-pub use app::App;
+pub use app::{App, WrappedLine};
 
 /// Parse line range from --lines argument
 pub fn parse_line_range(range: &str, total_lines: usize) -> Result<(usize, usize), MatError> {
@@ -153,6 +153,8 @@ pub fn run_pager(
         theme_colors,
         args.ignore_case,
         file_path,
+        args.wrap,
+        args.max_width,
     );
 
     // Find all matches if search is active
@@ -171,6 +173,9 @@ pub fn run_pager(
         path: std::path::PathBuf::from("terminal"),
     })?;
     app.set_terminal_size(size.width, size.height);
+
+    // Build wrapped lines if in wrap mode
+    app.build_wrapped_lines();
 
     // Main loop
     loop {
@@ -200,6 +205,8 @@ pub fn run_pager(
                 }
                 Event::Resize(width, height) => {
                     app.set_terminal_size(width, height);
+                    // Rebuild wrapped lines on resize
+                    app.build_wrapped_lines();
                 }
                 _ => {}
             }

@@ -148,6 +148,7 @@ fn handle_search_mode(key: KeyEvent, app: &mut App) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::WrapMode;
     use crate::display::Document;
     use crate::theme::{Theme, ThemeColors};
 
@@ -158,7 +159,7 @@ mod tests {
             "UTF-8".to_string(),
         );
         let theme_colors = ThemeColors::for_theme(Theme::Dark);
-        let mut app = App::new(doc, false, None, theme_colors, false, None);
+        let mut app = App::new(doc, false, None, theme_colors, false, None, WrapMode::None, 200);
         app.set_terminal_size(80, 3); // 2 content lines visible
         app
     }

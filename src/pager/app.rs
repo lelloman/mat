@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use crate::cli::WrapMode;
 use crate::display::{Document, Line};
 use crate::highlight::SearchState;
 use crate::input::FollowReader;
@@ -48,6 +49,27 @@ pub struct App {
     pub follow_reader: Option<FollowReader>,
     /// Path to the file being viewed (for follow mode)
     pub file_path: Option<PathBuf>,
+    /// Line wrapping mode
+    pub wrap_mode: WrapMode,
+    /// Max width for truncation mode
+    pub max_width: usize,
+    /// Cached wrapped lines (invalidated on resize or wrap mode change)
+    pub wrapped_lines: Option<Vec<WrappedLine>>,
+}
+
+/// A single display row, which may be part of a wrapped line
+#[derive(Debug, Clone)]
+pub struct WrappedLine {
+    /// Original line index in the document (0-indexed)
+    pub line_idx: usize,
+    /// Original line number (1-indexed, for display)
+    pub line_number: usize,
+    /// Whether this is the first row of the original line
+    pub is_first_row: bool,
+    /// Character offset into the original line where this row starts
+    pub char_offset: usize,
+    /// Number of display columns in this row
+    pub display_width: usize,
 }
 
 impl App {
@@ -59,6 +81,8 @@ impl App {
         theme_colors: ThemeColors,
         ignore_case: bool,
         file_path: Option<PathBuf>,
+        wrap_mode: WrapMode,
+        max_width: usize,
     ) -> Self {
         Self {
             document,
@@ -76,6 +100,9 @@ impl App {
             follow_mode: false,
             follow_reader: None,
             file_path,
+            wrap_mode,
+            max_width,
+            wrapped_lines: None,
         }
     }
 
@@ -252,7 +279,12 @@ impl App {
 
     /// Update terminal size
     pub fn set_terminal_size(&mut self, width: u16, height: u16) {
+        let old_size = self.terminal_size;
         self.terminal_size = (width, height);
+        // Invalidate wrapped lines cache if size changed and we're in wrap mode
+        if old_size != (width, height) && self.wrap_mode != WrapMode::None {
+            self.wrapped_lines = None;
+        }
     }
 
     /// Get the content area height (excluding status bar)
@@ -294,7 +326,7 @@ impl App {
 
     /// Scroll down by n lines
     pub fn scroll_down(&mut self, n: usize) {
-        let max_scroll = self.document.line_count().saturating_sub(self.content_height());
+        let max_scroll = self.max_scroll();
         self.scroll_line = (self.scroll_line + n).min(max_scroll);
     }
 
@@ -303,26 +335,36 @@ impl App {
         self.scroll_line = self.scroll_line.saturating_sub(n);
     }
 
-    /// Scroll left by n columns
+    /// Scroll left by n columns (disabled in wrap mode)
     pub fn scroll_left(&mut self, n: usize) {
+        if self.wrap_mode == WrapMode::Wrap {
+            return; // No horizontal scroll in wrap mode
+        }
         self.scroll_col = self.scroll_col.saturating_sub(n);
     }
 
-    /// Scroll right by n columns
+    /// Scroll right by n columns (disabled in wrap mode)
     pub fn scroll_right(&mut self, n: usize) {
+        if self.wrap_mode == WrapMode::Wrap {
+            return; // No horizontal scroll in wrap mode
+        }
         let max_scroll = self.document.max_line_width.saturating_sub(self.content_width());
         self.scroll_col = (self.scroll_col + n).min(max_scroll);
     }
 
-    /// Scroll to the start of the current line
+    /// Scroll to the start of the current line (disabled in wrap mode)
     pub fn scroll_to_line_start(&mut self) {
-        self.scroll_col = 0;
+        if self.wrap_mode != WrapMode::Wrap {
+            self.scroll_col = 0;
+        }
     }
 
-    /// Scroll to the end of the longest visible line
+    /// Scroll to the end of the longest visible line (disabled in wrap mode)
     pub fn scroll_to_line_end(&mut self) {
-        let max_scroll = self.document.max_line_width.saturating_sub(self.content_width());
-        self.scroll_col = max_scroll;
+        if self.wrap_mode != WrapMode::Wrap {
+            let max_scroll = self.document.max_line_width.saturating_sub(self.content_width());
+            self.scroll_col = max_scroll;
+        }
     }
 
     /// Go to the top of the document
@@ -332,8 +374,19 @@ impl App {
 
     /// Go to the bottom of the document
     pub fn go_to_bottom(&mut self) {
-        let max_scroll = self.document.line_count().saturating_sub(self.content_height());
-        self.scroll_line = max_scroll;
+        self.scroll_line = self.max_scroll();
+    }
+
+    /// Get maximum scroll position
+    fn max_scroll(&self) -> usize {
+        match self.wrap_mode {
+            WrapMode::None | WrapMode::Truncate => {
+                self.document.line_count().saturating_sub(self.content_height())
+            }
+            WrapMode::Wrap => {
+                self.total_wrapped_lines().saturating_sub(self.content_height())
+            }
+        }
     }
 
     /// Scroll down half a page
@@ -360,7 +413,144 @@ impl App {
 
     /// Check if we're at the end of the document
     pub fn at_bottom(&self) -> bool {
-        self.scroll_line + self.content_height() >= self.document.line_count()
+        match self.wrap_mode {
+            WrapMode::None | WrapMode::Truncate => {
+                self.scroll_line + self.content_height() >= self.document.line_count()
+            }
+            WrapMode::Wrap => {
+                let total_wrapped = self.total_wrapped_lines();
+                self.scroll_line + self.content_height() >= total_wrapped
+            }
+        }
+    }
+
+    /// Check if we're in a wrapping mode
+    pub fn is_wrapping(&self) -> bool {
+        self.wrap_mode == WrapMode::Wrap
+    }
+
+    /// Get total number of wrapped lines (for wrap mode)
+    pub fn total_wrapped_lines(&self) -> usize {
+        if self.wrap_mode != WrapMode::Wrap {
+            return self.document.line_count();
+        }
+        // This is a simplified calculation - actual wrapping happens in render
+        let width = self.content_width();
+        if width == 0 {
+            return self.document.line_count();
+        }
+        self.document
+            .lines
+            .iter()
+            .map(|line| {
+                let line_width = line.width();
+                if line_width == 0 {
+                    1
+                } else {
+                    (line_width + width - 1) / width // ceil division
+                }
+            })
+            .sum()
+    }
+
+    /// Build wrapped line indices for efficient lookup
+    pub fn build_wrapped_lines(&mut self) {
+        if self.wrap_mode != WrapMode::Wrap {
+            self.wrapped_lines = None;
+            return;
+        }
+
+        let width = self.content_width();
+        if width == 0 {
+            self.wrapped_lines = None;
+            return;
+        }
+
+        let mut wrapped = Vec::new();
+
+        for (line_idx, line) in self.document.lines.iter().enumerate() {
+            let line_text = line.text();
+            let line_width = line.width();
+
+            if line_width == 0 {
+                // Empty line - still takes one row
+                wrapped.push(WrappedLine {
+                    line_idx,
+                    line_number: line.number,
+                    is_first_row: true,
+                    char_offset: 0,
+                    display_width: 0,
+                });
+            } else {
+                // Break line into wrapped rows
+                let mut current_width = 0;
+                let mut is_first = true;
+                let mut row_start = 0;
+
+                for (char_idx, ch) in line_text.chars().enumerate() {
+                    let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+
+                    if current_width + ch_width > width && current_width > 0 {
+                        // Start a new row
+                        wrapped.push(WrappedLine {
+                            line_idx,
+                            line_number: line.number,
+                            is_first_row: is_first,
+                            char_offset: row_start,
+                            display_width: current_width,
+                        });
+                        is_first = false;
+                        row_start = char_idx;
+                        current_width = ch_width;
+                    } else {
+                        current_width += ch_width;
+                    }
+                }
+
+                // Don't forget the last row
+                if current_width > 0 || is_first {
+                    wrapped.push(WrappedLine {
+                        line_idx,
+                        line_number: line.number,
+                        is_first_row: is_first,
+                        char_offset: row_start,
+                        display_width: current_width,
+                    });
+                }
+            }
+        }
+
+        self.wrapped_lines = Some(wrapped);
+    }
+
+    /// Get wrapped lines, building cache if needed
+    pub fn get_wrapped_lines(&mut self) -> Option<&Vec<WrappedLine>> {
+        if self.wrap_mode != WrapMode::Wrap {
+            return None;
+        }
+        if self.wrapped_lines.is_none() {
+            self.build_wrapped_lines();
+        }
+        self.wrapped_lines.as_ref()
+    }
+
+    /// Invalidate wrapped lines cache (call when document changes)
+    pub fn invalidate_wrap_cache(&mut self) {
+        self.wrapped_lines = None;
+    }
+
+    /// Get visible wrapped line range for rendering
+    pub fn visible_wrapped_range(&self) -> Option<(usize, usize)> {
+        if self.wrap_mode != WrapMode::Wrap {
+            return None;
+        }
+        if let Some(ref wrapped) = self.wrapped_lines {
+            let start = self.scroll_line;
+            let end = (start + self.content_height()).min(wrapped.len());
+            Some((start, end))
+        } else {
+            None
+        }
     }
 }
 
@@ -381,7 +571,7 @@ mod tests {
     #[test]
     fn test_scroll_down() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None, test_theme_colors(), false, None);
+        let mut app = App::new(doc, false, None, test_theme_colors(), false, None, WrapMode::None, 200);
         app.set_terminal_size(80, 24); // 23 content lines
 
         assert_eq!(app.scroll_line, 0);
@@ -396,7 +586,7 @@ mod tests {
     #[test]
     fn test_scroll_up() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None, test_theme_colors(), false, None);
+        let mut app = App::new(doc, false, None, test_theme_colors(), false, None, WrapMode::None, 200);
         app.scroll_line = 50;
 
         app.scroll_up(10);
@@ -410,7 +600,7 @@ mod tests {
     #[test]
     fn test_go_to_top_bottom() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None, test_theme_colors(), false, None);
+        let mut app = App::new(doc, false, None, test_theme_colors(), false, None, WrapMode::None, 200);
         app.set_terminal_size(80, 24);
         app.scroll_line = 50;
 
@@ -424,15 +614,45 @@ mod tests {
     #[test]
     fn test_gutter_width() {
         let doc = create_test_doc(9);
-        let app = App::new(doc, true, None, test_theme_colors(), false, None);
+        let app = App::new(doc, true, None, test_theme_colors(), false, None, WrapMode::None, 200);
         assert_eq!(app.gutter_width(), 3); // " 9 "
 
         let doc = create_test_doc(99);
-        let app = App::new(doc, true, None, test_theme_colors(), false, None);
+        let app = App::new(doc, true, None, test_theme_colors(), false, None, WrapMode::None, 200);
         assert_eq!(app.gutter_width(), 4); // " 99 "
 
         let doc = create_test_doc(999);
-        let app = App::new(doc, true, None, test_theme_colors(), false, None);
+        let app = App::new(doc, true, None, test_theme_colors(), false, None, WrapMode::None, 200);
         assert_eq!(app.gutter_width(), 5); // " 999 "
+    }
+
+    #[test]
+    fn test_wrap_mode_scroll() {
+        // Create a document with lines that will wrap
+        let text = "Short\nThis is a much longer line that should wrap at width 20\nAnother";
+        let doc = Document::from_text(text, "test.txt".to_string(), "UTF-8".to_string());
+        let mut app = App::new(doc, false, None, test_theme_colors(), false, None, WrapMode::Wrap, 200);
+        app.set_terminal_size(20, 10); // narrow width to force wrapping
+
+        // Build wrapped lines
+        app.build_wrapped_lines();
+
+        // Total wrapped lines should be more than original 3 lines
+        let total = app.total_wrapped_lines();
+        assert!(total > 3, "Expected wrapping to increase line count, got {}", total);
+    }
+
+    #[test]
+    fn test_wrap_mode_no_horizontal_scroll() {
+        let doc = create_test_doc(10);
+        let mut app = App::new(doc, false, None, test_theme_colors(), false, None, WrapMode::Wrap, 200);
+        app.set_terminal_size(80, 24);
+
+        // Horizontal scroll should be disabled in wrap mode
+        app.scroll_right(10);
+        assert_eq!(app.scroll_col, 0);
+
+        app.scroll_left(10);
+        assert_eq!(app.scroll_col, 0);
     }
 }
