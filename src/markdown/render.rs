@@ -108,14 +108,8 @@ impl MarkdownRenderer {
                 // Store heading level for decorations in end_tag
                 self.current_heading = Some(level);
 
-                // Add top border for H1
+                // Add side border prefix for H1 (top border added in end_tag after we know width)
                 if level == HeadingLevel::H1 {
-                    let border_style = SpanStyle::new().fg(Color::Yellow);
-                    self.add_styled_text("╔", border_style.clone());
-                    self.add_styled_text(&"═".repeat(50), border_style.clone());
-                    self.add_styled_text("╗", border_style);
-                    self.flush_line();
-                    // Add side border prefix
                     let side_style = SpanStyle::new().fg(Color::Yellow);
                     self.add_styled_text("║  ", side_style);
                 } else if level == HeadingLevel::H2 {
@@ -222,14 +216,31 @@ impl MarkdownRenderer {
                 if let Some(level) = self.current_heading.take() {
                     match level {
                         HeadingLevel::H1 => {
-                            // Add closing side border before flushing
-                            let side_style = SpanStyle::new().fg(Color::Yellow);
-                            self.add_styled_text("  ║", side_style);
-                            self.flush_line();
-                            // Bottom border for the frame
+                            // Calculate content width (includes "║  " prefix which is 3 chars)
+                            let content_width: usize = self.current_line.iter().map(|s| s.width()).sum();
+                            // We'll add " ║" (2 chars), total line = content_width + 2
+                            // Border line = ╔ + ═×N + ╗, total = N + 2
+                            // For alignment: N + 2 = content_width + 2, so N = content_width
+                            let border_width = content_width;
+
+                            // Save current line, we need to insert top border before it
+                            let content_line = std::mem::take(&mut self.current_line);
+
+                            // Add top border
                             let border_style = SpanStyle::new().fg(Color::Yellow);
+                            self.add_styled_text("╔", border_style.clone());
+                            self.add_styled_text(&"═".repeat(border_width), border_style.clone());
+                            self.add_styled_text("╗", border_style.clone());
+                            self.flush_line();
+
+                            // Restore content line and add closing border
+                            self.current_line = content_line;
+                            self.add_styled_text(" ║", border_style.clone());
+                            self.flush_line();
+
+                            // Add bottom border
                             self.add_styled_text("╚", border_style.clone());
-                            self.add_styled_text(&"═".repeat(50), border_style.clone());
+                            self.add_styled_text(&"═".repeat(border_width), border_style.clone());
                             self.add_styled_text("╝", border_style);
                             self.flush_line();
                         }
