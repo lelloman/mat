@@ -109,7 +109,12 @@ pub fn print_document(document: &Document, show_line_numbers: bool) -> io::Resul
 }
 
 /// Run the pager TUI
-pub fn run_pager(document: Document, args: &Args, search_state: Option<SearchState>) -> Result<(), MatError> {
+pub fn run_pager(
+    document: Document,
+    args: &Args,
+    search_state: Option<SearchState>,
+    file_path: Option<std::path::PathBuf>,
+) -> Result<(), MatError> {
     // Set up panic hook to restore terminal on panic
     let original_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic_info| {
@@ -147,11 +152,17 @@ pub fn run_pager(document: Document, args: &Args, search_state: Option<SearchSta
         search_state,
         theme_colors,
         args.ignore_case,
+        file_path,
     );
 
     // Find all matches if search is active
     if let Some(ref mut state) = app.search_state {
         state.find_matches(&app.document);
+    }
+
+    // Enable follow mode if requested
+    if args.follow {
+        app.toggle_follow();
     }
 
     // Get initial terminal size
@@ -193,6 +204,9 @@ pub fn run_pager(document: Document, args: &Args, search_state: Option<SearchSta
                 _ => {}
             }
         }
+
+        // Check for follow mode updates
+        app.check_follow_updates();
 
         if app.should_quit {
             break;

@@ -1,5 +1,8 @@
-use crate::display::Document;
+use std::path::PathBuf;
+
+use crate::display::{Document, Line};
 use crate::highlight::SearchState;
+use crate::input::FollowReader;
 use crate::theme::ThemeColors;
 
 use super::search::InteractiveSearch;
@@ -39,6 +42,12 @@ pub struct App {
     pub interactive_search: Option<InteractiveSearch>,
     /// Whether case-insensitive search is enabled
     pub ignore_case: bool,
+    /// Whether follow mode is active
+    pub follow_mode: bool,
+    /// Follow reader for tailing files
+    pub follow_reader: Option<FollowReader>,
+    /// Path to the file being viewed (for follow mode)
+    pub file_path: Option<PathBuf>,
 }
 
 impl App {
@@ -49,6 +58,7 @@ impl App {
         search_state: Option<SearchState>,
         theme_colors: ThemeColors,
         ignore_case: bool,
+        file_path: Option<PathBuf>,
     ) -> Self {
         Self {
             document,
@@ -63,6 +73,54 @@ impl App {
             theme_colors,
             interactive_search: None,
             ignore_case,
+            follow_mode: false,
+            follow_reader: None,
+            file_path,
+        }
+    }
+
+    /// Toggle follow mode
+    pub fn toggle_follow(&mut self) {
+        // Only allow follow mode for files
+        if let Some(ref path) = self.file_path {
+            if self.follow_mode {
+                // Disable follow mode
+                self.follow_mode = false;
+                self.follow_reader = None;
+            } else {
+                // Enable follow mode
+                if let Ok(reader) = FollowReader::new(path.clone(), true) {
+                    self.follow_mode = true;
+                    self.follow_reader = Some(reader);
+                    // Scroll to bottom when entering follow mode
+                    self.go_to_bottom();
+                }
+            }
+        }
+    }
+
+    /// Check for new content in follow mode and append to document
+    pub fn check_follow_updates(&mut self) {
+        if !self.follow_mode {
+            return;
+        }
+
+        if let Some(ref mut reader) = self.follow_reader {
+            if let Ok(new_lines) = reader.check_for_new_content() {
+                if !new_lines.is_empty() {
+                    let start_number = self.document.lines.len() + 1;
+                    for (i, text) in new_lines.into_iter().enumerate() {
+                        let line = Line::plain(start_number + i, &text);
+                        let width = line.width();
+                        self.document.lines.push(line);
+                        if width > self.document.max_line_width {
+                            self.document.max_line_width = width;
+                        }
+                    }
+                    // Auto-scroll to bottom
+                    self.go_to_bottom();
+                }
+            }
         }
     }
 
@@ -323,7 +381,7 @@ mod tests {
     #[test]
     fn test_scroll_down() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None, test_theme_colors(), false);
+        let mut app = App::new(doc, false, None, test_theme_colors(), false, None);
         app.set_terminal_size(80, 24); // 23 content lines
 
         assert_eq!(app.scroll_line, 0);
@@ -338,7 +396,7 @@ mod tests {
     #[test]
     fn test_scroll_up() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None, test_theme_colors(), false);
+        let mut app = App::new(doc, false, None, test_theme_colors(), false, None);
         app.scroll_line = 50;
 
         app.scroll_up(10);
@@ -352,7 +410,7 @@ mod tests {
     #[test]
     fn test_go_to_top_bottom() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None, test_theme_colors(), false);
+        let mut app = App::new(doc, false, None, test_theme_colors(), false, None);
         app.set_terminal_size(80, 24);
         app.scroll_line = 50;
 
@@ -366,15 +424,15 @@ mod tests {
     #[test]
     fn test_gutter_width() {
         let doc = create_test_doc(9);
-        let app = App::new(doc, true, None, test_theme_colors(), false);
+        let app = App::new(doc, true, None, test_theme_colors(), false, None);
         assert_eq!(app.gutter_width(), 3); // " 9 "
 
         let doc = create_test_doc(99);
-        let app = App::new(doc, true, None, test_theme_colors(), false);
+        let app = App::new(doc, true, None, test_theme_colors(), false, None);
         assert_eq!(app.gutter_width(), 4); // " 99 "
 
         let doc = create_test_doc(999);
-        let app = App::new(doc, true, None, test_theme_colors(), false);
+        let app = App::new(doc, true, None, test_theme_colors(), false, None);
         assert_eq!(app.gutter_width(), 5); // " 999 "
     }
 }

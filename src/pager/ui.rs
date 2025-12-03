@@ -210,11 +210,22 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     // Center: mode indicator and search info
     let mode_str = match &app.mode {
         Mode::Normal => {
+            let mut indicators = Vec::new();
+
+            // Show follow mode indicator
+            if app.follow_mode {
+                indicators.push("[FOLLOW]".to_string());
+            }
+
             // Show search match info if available
             if let Some((current, total)) = app.search_info() {
-                format!(" Match {}/{} ", current, total)
-            } else {
+                indicators.push(format!("Match {}/{}", current, total));
+            }
+
+            if indicators.is_empty() {
                 String::new()
+            } else {
+                format!(" {} ", indicators.join(" | "))
             }
         }
         Mode::Search { query } => format!(" [SEARCH: {}] ", query),

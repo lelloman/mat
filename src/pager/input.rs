@@ -104,6 +104,12 @@ fn handle_normal_mode(key: KeyEvent, app: &mut App) -> bool {
             false
         }
 
+        // Toggle follow mode
+        KeyCode::Char('f') => {
+            app.toggle_follow();
+            false
+        }
+
         _ => false,
     }
 }
@@ -152,7 +158,7 @@ mod tests {
             "UTF-8".to_string(),
         );
         let theme_colors = ThemeColors::for_theme(Theme::Dark);
-        let mut app = App::new(doc, false, None, theme_colors, false);
+        let mut app = App::new(doc, false, None, theme_colors, false, None);
         app.set_terminal_size(80, 3); // 2 content lines visible
         app
     }

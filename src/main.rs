@@ -32,7 +32,7 @@ fn run(args: Args) -> Result<(), MatError> {
     };
 
     // Load content
-    let content = load_content(source, &args)?;
+    let content = load_content(source.clone(), &args)?;
 
     // Determine if we should render as markdown
     let should_render_markdown = if args.no_markdown {
@@ -76,6 +76,12 @@ fn run(args: Args) -> Result<(), MatError> {
         apply_search_highlight(&mut document, &state.pattern);
     }
 
+    // Get file path for follow mode (only for file inputs)
+    let file_path = match &source {
+        input::InputSource::File(p) => Some(p.clone()),
+        input::InputSource::Stdin => None,
+    };
+
     // Run pager or print directly
     if args.no_pager {
         print_document(&document, args.line_numbers).map_err(|e| MatError::Io {
@@ -83,7 +89,7 @@ fn run(args: Args) -> Result<(), MatError> {
             path: std::path::PathBuf::from("stdout"),
         })?;
     } else {
-        run_pager(document, &args, search_state)?;
+        run_pager(document, &args, search_state, file_path)?;
     }
 
     Ok(())

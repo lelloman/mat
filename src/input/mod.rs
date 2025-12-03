@@ -1,6 +1,7 @@
 mod binary;
 mod encoding;
 mod file;
+mod follow;
 mod stdin;
 
 use std::path::PathBuf;
@@ -11,6 +12,7 @@ use crate::error::MatError;
 pub use binary::is_binary;
 pub use encoding::{decode_bytes, detect_encoding};
 pub use file::{detect_extension, is_markdown_extension, read_file};
+pub use follow::FollowReader;
 pub use stdin::{is_stdin_piped, read_stdin};
 
 /// Represents the source of input
