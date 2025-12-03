@@ -156,8 +156,11 @@ pub fn grep_filter(document: &Document, options: &GrepOptions) -> Document {
                 is_context: !is_match,
             };
 
-            // Apply dim style to context lines
-            if !is_match {
+            if is_match {
+                // Highlight the matched portions within the line
+                line.spans = highlight_matches(&text, &options.pattern);
+            } else {
+                // Apply dim style to context lines
                 line.spans = vec![StyledSpan::new(
                     text,
                     SpanStyle::default().fg(ratatui::style::Color::DarkGray),
@@ -178,6 +181,40 @@ pub fn grep_filter(document: &Document, options: &GrepOptions) -> Document {
         source_name: document.source_name.clone(),
         encoding: document.encoding.clone(),
     }
+}
+
+/// Highlight all matches of the pattern in the text
+fn highlight_matches(text: &str, pattern: &Regex) -> Vec<StyledSpan> {
+    let mut spans = Vec::new();
+    let mut last_end = 0;
+
+    let match_style = SpanStyle::default()
+        .fg(ratatui::style::Color::Black)
+        .bg(ratatui::style::Color::Yellow);
+    let normal_style = SpanStyle::default();
+
+    for mat in pattern.find_iter(text) {
+        // Add non-matching text before this match
+        if mat.start() > last_end {
+            spans.push(StyledSpan::new(&text[last_end..mat.start()], normal_style.clone()));
+        }
+        // Add the matched text with highlight
+        spans.push(StyledSpan::new(mat.as_str(), match_style.clone()));
+        last_end = mat.end();
+    }
+
+    // Add any remaining text after the last match
+    if last_end < text.len() {
+        spans.push(StyledSpan::new(&text[last_end..], normal_style.clone()));
+    }
+
+    // If no matches found (shouldn't happen since we only call this for matching lines),
+    // return the whole text as a single span
+    if spans.is_empty() {
+        spans.push(StyledSpan::new(text, normal_style));
+    }
+
+    spans
 }
 
 /// Merge overlapping ranges
@@ -319,5 +356,46 @@ mod tests {
         assert!(regex.is_match("test"));
         assert!(regex.is_match("a test here"));
         assert!(!regex.is_match("testing"));
+    }
+
+    #[test]
+    fn test_highlight_matches() {
+        let pattern = Regex::new("test").unwrap();
+        let text = "this is a test string with test";
+        let spans = highlight_matches(text, &pattern);
+
+        // Should have 5 spans: "this is a ", "test", " string with ", "test", ""
+        // Actually the last "" won't be added since last_end == text.len()
+        assert_eq!(spans.len(), 4);
+        assert_eq!(spans[0].text, "this is a ");
+        assert_eq!(spans[1].text, "test");
+        assert_eq!(spans[2].text, " string with ");
+        assert_eq!(spans[3].text, "test");
+
+        // Check that matched spans have yellow background
+        assert!(spans[1].style.bg.is_some());
+        assert!(spans[3].style.bg.is_some());
+    }
+
+    #[test]
+    fn test_highlight_matches_at_start() {
+        let pattern = Regex::new("hello").unwrap();
+        let text = "hello world";
+        let spans = highlight_matches(text, &pattern);
+
+        assert_eq!(spans.len(), 2);
+        assert_eq!(spans[0].text, "hello");
+        assert_eq!(spans[1].text, " world");
+    }
+
+    #[test]
+    fn test_highlight_matches_at_end() {
+        let pattern = Regex::new("world").unwrap();
+        let text = "hello world";
+        let spans = highlight_matches(text, &pattern);
+
+        assert_eq!(spans.len(), 2);
+        assert_eq!(spans[0].text, "hello ");
+        assert_eq!(spans[1].text, "world");
     }
 }

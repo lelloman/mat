@@ -102,18 +102,9 @@ impl MarkdownRenderer {
                 if !self.current_line.is_empty() || !self.lines.is_empty() {
                     self.flush_line();
                 }
-                let prefix = match level {
-                    HeadingLevel::H1 => "# ",
-                    HeadingLevel::H2 => "## ",
-                    HeadingLevel::H3 => "### ",
-                    HeadingLevel::H4 => "#### ",
-                    HeadingLevel::H5 => "##### ",
-                    HeadingLevel::H6 => "###### ",
-                };
-
+                // Apply heading style without showing the # markers
                 let style = self.heading_style(level);
-                self.push_style(style.clone());
-                self.add_styled_text(prefix, style);
+                self.push_style(style);
             }
             Tag::Paragraph => {
                 // Add blank line before paragraph (unless at start or in list)
@@ -130,18 +121,20 @@ impl MarkdownRenderer {
                 self.flush_line();
                 self.in_code_block = true;
 
-                // Add language indicator if present
+                // Add a visual indicator for code blocks (a subtle box top)
+                let style = SpanStyle::new().fg(Color::DarkGray);
                 if let CodeBlockKind::Fenced(lang) = kind {
                     if !lang.is_empty() {
-                        let style = SpanStyle::new().fg(Color::DarkGray);
-                        self.add_styled_text(&format!("```{}", lang), style);
-                        self.flush_line();
+                        self.add_styled_text(&format!("─── {} ", lang), style.clone());
+                        // Fill to make it look like a box
+                        self.add_styled_text(&"─".repeat(30), style);
                     } else {
-                        let style = SpanStyle::new().fg(Color::DarkGray);
-                        self.add_styled_text("```", style);
-                        self.flush_line();
+                        self.add_styled_text(&"─".repeat(40), style);
                     }
+                } else {
+                    self.add_styled_text(&"─".repeat(40), style);
                 }
+                self.flush_line();
             }
             Tag::List(start) => {
                 if self.list_depth == 0 && (!self.current_line.is_empty() || !self.lines.is_empty()) {
@@ -172,10 +165,9 @@ impl MarkdownRenderer {
                 self.push_style(style);
             }
             Tag::Link { .. } => {
-                // Style the link text
+                // Style the link text with blue underline, no brackets
                 let style = SpanStyle::new().fg(Color::Blue).underline();
                 self.push_style(style);
-                self.current_line.push(StyledSpan::new("[", SpanStyle::new().fg(Color::DarkGray)));
             }
             Tag::Image { .. } => {
                 let style = SpanStyle::new().fg(Color::Magenta);
@@ -213,8 +205,9 @@ impl MarkdownRenderer {
             }
             TagEnd::CodeBlock => {
                 self.in_code_block = false;
+                // Add bottom border for code block
                 let style = SpanStyle::new().fg(Color::DarkGray);
-                self.add_styled_text("```", style);
+                self.add_styled_text(&"─".repeat(40), style);
                 self.flush_line();
             }
             TagEnd::List(_) => {
@@ -231,7 +224,6 @@ impl MarkdownRenderer {
             }
             TagEnd::Link => {
                 self.pop_style();
-                self.current_line.push(StyledSpan::new("]", SpanStyle::new().fg(Color::DarkGray)));
             }
             TagEnd::Image => {
                 self.pop_style();
@@ -285,10 +277,9 @@ impl MarkdownRenderer {
     }
 
     fn add_inline_code(&mut self, code: &str) {
+        // Show inline code with cyan color, no backticks
         let style = SpanStyle::new().fg(Color::Cyan);
-        self.current_line.push(StyledSpan::new("`", SpanStyle::new().fg(Color::DarkGray)));
         self.current_line.push(StyledSpan::new(code, style));
-        self.current_line.push(StyledSpan::new("`", SpanStyle::new().fg(Color::DarkGray)));
     }
 
     fn add_horizontal_rule(&mut self) {
