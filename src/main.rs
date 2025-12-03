@@ -14,7 +14,7 @@ use std::process::ExitCode;
 use cli::Args;
 use display::Document;
 use error::{MatError, EXIT_SUCCESS};
-use filter::{grep_filter, GrepOptions};
+use filter::{apply_grep_highlight, grep_filter, GrepOptions};
 use highlight::{apply_search_highlight, apply_syntax_highlight, SearchState};
 use input::{determine_input_source, load_content};
 use markdown::render_markdown;
@@ -63,8 +63,9 @@ fn run(args: Args) -> Result<(), MatError> {
     }
 
     // Apply grep filter if specified
-    if let Some(grep_options) = GrepOptions::from_args(&args)? {
-        document = grep_filter(&document, &grep_options);
+    let grep_options = GrepOptions::from_args(&args)?;
+    if let Some(ref opts) = grep_options {
+        document = grep_filter(&document, opts);
     }
 
     // Determine theme for highlighting
@@ -73,6 +74,11 @@ fn run(args: Args) -> Result<(), MatError> {
     // Apply syntax highlighting if not disabled
     if !args.no_highlight {
         apply_syntax_highlight(&mut document, args.language.as_deref(), theme);
+    }
+
+    // Apply grep match highlighting AFTER syntax highlighting
+    if let Some(ref opts) = grep_options {
+        apply_grep_highlight(&mut document, &opts.pattern);
     }
 
     // Apply search highlighting if specified

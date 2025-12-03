@@ -156,11 +156,9 @@ pub fn grep_filter(document: &Document, options: &GrepOptions) -> Document {
                 is_context: !is_match,
             };
 
-            if is_match {
-                // Highlight the matched portions within the line
-                line.spans = highlight_matches(&text, &options.pattern);
-            } else {
-                // Apply dim style to context lines
+            // Context lines get dim styling
+            // Match lines keep their spans - highlighting applied later after syntax highlighting
+            if !is_match {
                 line.spans = vec![StyledSpan::new(
                     text,
                     SpanStyle::default().fg(ratatui::style::Color::DarkGray),
@@ -184,7 +182,7 @@ pub fn grep_filter(document: &Document, options: &GrepOptions) -> Document {
 }
 
 /// Highlight all matches of the pattern in the text
-fn highlight_matches(text: &str, pattern: &Regex) -> Vec<StyledSpan> {
+pub fn highlight_matches(text: &str, pattern: &Regex) -> Vec<StyledSpan> {
     let mut spans = Vec::new();
     let mut last_end = 0;
 
@@ -215,6 +213,17 @@ fn highlight_matches(text: &str, pattern: &Regex) -> Vec<StyledSpan> {
     }
 
     spans
+}
+
+/// Apply grep match highlighting to a document
+/// This should be called AFTER syntax highlighting to overlay match highlights
+pub fn apply_grep_highlight(document: &mut Document, pattern: &Regex) {
+    for line in &mut document.lines {
+        if line.is_match {
+            let text = line.text();
+            line.spans = highlight_matches(&text, pattern);
+        }
+    }
 }
 
 /// Merge overlapping ranges
