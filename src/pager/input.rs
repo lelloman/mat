@@ -116,6 +116,12 @@ fn handle_normal_mode(key: KeyEvent, app: &mut App) -> bool {
             false
         }
 
+        // Toggle line numbers
+        KeyCode::Char('#') => {
+            app.show_line_numbers = !app.show_line_numbers;
+            false
+        }
+
         _ => false,
     }
 }

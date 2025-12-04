@@ -587,8 +587,12 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         .bg(app.theme_colors.status_bg)
         .fg(app.theme_colors.status_fg);
 
-    // Left: file name only
-    let position_text = format!(" {} ", app.document.source_name);
+    // Left: file name (and total lines if line numbers are shown)
+    let position_text = if app.show_line_numbers {
+        format!(" {} ({} lines) ", app.document.source_name, app.total_lines())
+    } else {
+        format!(" {} ", app.document.source_name)
+    };
 
     // Center: mode indicator and search info
     let mode_str = match &app.mode {
