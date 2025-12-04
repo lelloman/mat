@@ -624,7 +624,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mat"
+name = "mat-o-viewer"
 version = "0.1.0"
 dependencies = [
  "anyhow",

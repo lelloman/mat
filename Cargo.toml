@@ -1,5 +1,5 @@
 [package]
-name = "mat"
+name = "mat-o-viewer"
 version = "0.1.0"
 edition = "2021"
 description = "A modern terminal file viewer combining cat, less, and grep with syntax highlighting and markdown rendering"
@@ -11,6 +11,10 @@ keywords = ["cli", "terminal", "cat", "less", "pager"]
 categories = ["command-line-utilities", "text-processing"]
 readme = "README.md"
 rust-version = "1.70"
+
+[[bin]]
+name = "mat"
+path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
