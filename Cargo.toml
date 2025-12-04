@@ -2,8 +2,15 @@
 name = "mat"
 version = "0.1.0"
 edition = "2021"
-description = "A CLI tool combining cat, less, grep functionality with markdown rendering and syntax highlighting"
+description = "A modern terminal file viewer combining cat, less, and grep with syntax highlighting and markdown rendering"
 license = "MIT"
+authors = ["lelloman"]
+repository = "https://github.com/lelloman/mat"
+homepage = "https://github.com/lelloman/mat"
+keywords = ["cli", "terminal", "cat", "less", "pager"]
+categories = ["command-line-utilities", "text-processing"]
+readme = "README.md"
+rust-version = "1.70"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
