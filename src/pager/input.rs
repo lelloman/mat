@@ -26,9 +26,15 @@ fn handle_normal_mode(key: KeyEvent, app: &mut App) -> bool {
             true
         }
 
-        // Enter search mode
+        // Enter search mode (case-insensitive)
         KeyCode::Char('/') => {
-            app.enter_search_mode();
+            app.enter_search_mode(true);
+            false
+        }
+
+        // Enter search mode (case-sensitive)
+        KeyCode::Char('?') => {
+            app.enter_search_mode(false);
             false
         }
 

@@ -153,10 +153,11 @@ impl App {
     }
 
     /// Enter search mode
-    pub fn enter_search_mode(&mut self) {
+    /// If `case_insensitive` is true, search will ignore case
+    pub fn enter_search_mode(&mut self, case_insensitive: bool) {
         // Save original document for potential cancellation
         self.original_document = Some(self.document.clone());
-        self.interactive_search = Some(InteractiveSearch::new(self.ignore_case));
+        self.interactive_search = Some(InteractiveSearch::new(case_insensitive));
         self.mode = Mode::Search {
             query: String::new(),
         };

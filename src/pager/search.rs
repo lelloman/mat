@@ -109,4 +109,18 @@ mod tests {
         let regex = pattern.unwrap();
         assert!(regex.is_match("this is a TEST"));
     }
+
+    #[test]
+    fn test_compile_pattern_and_case_insensitive() {
+        let mut search = InteractiveSearch::new(true);
+        search.query = "AND".to_string();
+
+        let pattern = search.compile_pattern();
+        assert!(pattern.is_some());
+
+        let regex = pattern.unwrap();
+        assert!(regex.is_match("foo and bar"), "AND should match 'and'");
+        assert!(regex.is_match("foo AND bar"), "AND should match 'AND'");
+        assert!(regex.is_match("foo And bar"), "AND should match 'And'");
+    }
 }
