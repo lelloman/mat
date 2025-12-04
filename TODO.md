@@ -1,1 +1,0 @@
-- Add a scroll progress indicator, I sometimes want to know how far into the document I have scrolled already and how much is left.

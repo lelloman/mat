@@ -552,19 +552,43 @@ fn truncate_with_scroll(text: &str, scroll_col: usize, width: usize) -> String {
     result
 }
 
+/// Calculate scroll progress as a fraction (0.0 to 1.0)
+fn scroll_fraction(app: &App) -> f64 {
+    let total = app.total_lines();
+    let height = app.content_height();
+
+    if total <= height {
+        1.0 // Document fits on screen
+    } else {
+        let max_scroll = total.saturating_sub(height);
+        if max_scroll == 0 {
+            1.0
+        } else {
+            (app.scroll_line as f64) / (max_scroll as f64)
+        }
+    }
+}
+
+/// Generate a visual progress bar using block characters
+fn progress_bar(fraction: f64, width: usize) -> String {
+    if width == 0 {
+        return String::new();
+    }
+
+    let filled = ((fraction * width as f64).round() as usize).min(width);
+    let empty = width.saturating_sub(filled);
+
+    format!("{}{}", "█".repeat(filled), "░".repeat(empty))
+}
+
 /// Render the status bar
 fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     let style = Style::default()
         .bg(app.theme_colors.status_bg)
         .fg(app.theme_colors.status_fg);
 
-    // Left: file name and position
-    let position = format!(
-        " {} ({}/{}) ",
-        app.document.source_name,
-        app.current_line_display(),
-        app.total_lines()
-    );
+    // Left: file name only
+    let position_text = format!(" {} ", app.document.source_name);
 
     // Center: mode indicator and search info
     let mode_str = match &app.mode {
@@ -622,19 +646,38 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         }
     };
 
-    // Calculate spacing
+    // Calculate spacing and progress bar size
     let total_width = area.width as usize;
-    let left_len = position.len();
+    let left_len = position_text.len();
     let mode_len = mode_str.len();
     let right_len = right.len();
 
-    let available_space = total_width.saturating_sub(left_len + mode_len + right_len);
-    let left_padding = available_space / 2;
-    let right_padding = available_space - left_padding;
+    // Calculate available space for progress bar and padding
+    let fixed_content = left_len + mode_len + right_len;
+    let available_space = total_width.saturating_sub(fixed_content);
+
+    // Reserve some space for the progress bar (min 5, max 20, or half of available)
+    let progress_width = if available_space > 10 {
+        (available_space / 3).clamp(5, 20)
+    } else {
+        0 // No room for progress bar
+    };
+
+    let progress = if progress_width > 0 {
+        format!(" {} ", progress_bar(scroll_fraction(app), progress_width))
+    } else {
+        String::new()
+    };
+
+    // Recalculate padding with progress bar
+    let remaining_space = available_space.saturating_sub(progress.len());
+    let left_padding = remaining_space / 2;
+    let right_padding = remaining_space.saturating_sub(left_padding);
 
     let status_text = format!(
-        "{}{}{}{}{}",
-        position,
+        "{}{}{}{}{}{}",
+        position_text,
+        progress,
         " ".repeat(left_padding),
         mode_str,
         " ".repeat(right_padding),
