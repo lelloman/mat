@@ -207,13 +207,22 @@ mod tests {
     }
 
     #[test]
-    fn test_syntax_highlight_kotlin() {
-        let code = "fun main() {\n    println(\"Hello\")\n}";
-        let mut doc = Document::from_text(code, "test.kt".to_string(), "UTF-8".to_string());
+    fn test_syntax_highlight_bash() {
+        let code = "#!/bin/bash\necho \"Hello\"\nif [ -f file ]; then\n  cat file\nfi";
+        let mut doc = Document::from_text(code, "test.sh".to_string(), "UTF-8".to_string());
 
         apply_syntax_highlight(&mut doc, None, Theme::Dark);
 
-        // After highlighting, spans should be modified (Kotlin syntax loaded)
-        assert!(doc.lines[0].spans.len() > 0, "Kotlin highlighting should produce spans");
+        assert!(doc.lines[0].spans.len() > 0, "Bash highlighting should produce spans");
+    }
+
+    #[test]
+    fn test_syntax_highlight_toml() {
+        let code = "[package]\nname = \"test\"\nversion = \"1.0\"";
+        let mut doc = Document::from_text(code, "test.toml".to_string(), "UTF-8".to_string());
+
+        apply_syntax_highlight(&mut doc, None, Theme::Dark);
+
+        assert!(doc.lines[0].spans.len() > 0, "TOML highlighting should produce spans");
     }
 }
