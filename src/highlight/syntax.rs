@@ -7,8 +7,13 @@ use syntect::parsing::SyntaxSet;
 use crate::display::{Document, SpanStyle, StyledSpan};
 use crate::theme::Theme;
 
+/// Precompiled syntax set (built at compile time with custom syntaxes)
+static SYNTAX_SET_DATA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/syntax_set.packdump"));
+
 /// Lazily loaded syntax set
-static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(SyntaxSet::load_defaults_newlines);
+static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(|| {
+    syntect::dumps::from_uncompressed_data(SYNTAX_SET_DATA).expect("Failed to load syntax set")
+});
 
 /// Lazily loaded theme set
 static THEME_SET: Lazy<ThemeSet> = Lazy::new(ThemeSet::load_defaults);
@@ -199,5 +204,16 @@ mod tests {
 
         // Should remain unchanged
         assert_eq!(doc.lines[0].spans.len(), original_spans_len);
+    }
+
+    #[test]
+    fn test_syntax_highlight_kotlin() {
+        let code = "fun main() {\n    println(\"Hello\")\n}";
+        let mut doc = Document::from_text(code, "test.kt".to_string(), "UTF-8".to_string());
+
+        apply_syntax_highlight(&mut doc, None, Theme::Dark);
+
+        // After highlighting, spans should be modified (Kotlin syntax loaded)
+        assert!(doc.lines[0].spans.len() > 0, "Kotlin highlighting should produce spans");
     }
 }
