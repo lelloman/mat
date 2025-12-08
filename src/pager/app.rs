@@ -495,11 +495,6 @@ impl App {
         self.scroll_up(half_page);
     }
 
-    /// Get current line number for status bar (1-indexed)
-    pub fn current_line_display(&self) -> usize {
-        self.scroll_line + 1
-    }
-
     /// Get total line count for status bar
     pub fn total_lines(&self) -> usize {
         self.document.line_count()
