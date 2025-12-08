@@ -2,6 +2,7 @@ mod app;
 mod input;
 mod search;
 mod ui;
+mod watcher;
 
 use std::io::{self, stdout, Write};
 use std::panic;
@@ -21,6 +22,8 @@ use crate::highlight::SearchState;
 use crate::theme::{get_theme, ThemeColors};
 
 pub use app::App;
+use app::ReloadConfig;
+use watcher::FileWatcher;
 
 /// Parse line range from --lines argument
 pub fn parse_line_range(range: &str, total_lines: usize) -> Result<(usize, usize), MatError> {
@@ -145,6 +148,14 @@ pub fn run_pager(
     let theme = get_theme(args.theme.as_deref());
     let theme_colors = ThemeColors::for_theme(theme);
 
+    // Create reload config if viewing a file
+    let reload_config = file_path.as_ref().map(|_| ReloadConfig {
+        language: args.language.clone(),
+        theme,
+        no_highlight: args.no_highlight,
+        ansi: args.ansi,
+    });
+
     // Create app with search state and theme
     let mut app = App::new(
         document,
@@ -152,9 +163,10 @@ pub fn run_pager(
         search_state,
         theme_colors,
         args.ignore_case,
-        file_path,
+        file_path.clone(),
         args.wrap,
         args.max_width,
+        reload_config,
     );
 
     // Find all matches if search is active
@@ -176,6 +188,11 @@ pub fn run_pager(
 
     // Build wrapped lines if in wrap mode
     app.build_wrapped_lines();
+
+    // Set up file watcher if viewing a file (not stdin)
+    let file_watcher = file_path
+        .as_ref()
+        .and_then(|path| FileWatcher::new(path).ok());
 
     // Main loop
     loop {
@@ -214,6 +231,15 @@ pub fn run_pager(
 
         // Check for follow mode updates
         app.check_follow_updates();
+
+        // Check for file changes (only when not in follow mode)
+        if !app.follow_mode {
+            if let Some(ref watcher) = file_watcher {
+                if watcher.check_changed() {
+                    app.file_changed = true;
+                }
+            }
+        }
 
         if app.should_quit {
             break;

@@ -122,6 +122,12 @@ fn handle_normal_mode(key: KeyEvent, app: &mut App) -> bool {
             false
         }
 
+        // Reload file
+        KeyCode::Char('R') => {
+            app.reload_file();
+            false
+        }
+
         _ => false,
     }
 }
@@ -171,7 +177,7 @@ mod tests {
             "UTF-8".to_string(),
         );
         let theme_colors = ThemeColors::for_theme(Theme::Dark);
-        let mut app = App::new(doc, false, None, theme_colors, false, None, WrapMode::None, 200);
+        let mut app = App::new(doc, false, None, theme_colors, false, None, WrapMode::None, 200, None);
         app.set_terminal_size(80, 3); // 2 content lines visible
         app
     }

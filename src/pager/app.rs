@@ -2,11 +2,24 @@ use std::path::PathBuf;
 
 use crate::cli::WrapMode;
 use crate::display::{Document, Line};
-use crate::highlight::SearchState;
-use crate::input::FollowReader;
-use crate::theme::ThemeColors;
+use crate::highlight::{apply_search_highlight, apply_syntax_highlight, SearchState};
+use crate::input::{decode_bytes, detect_encoding, FollowReader};
+use crate::theme::{Theme, ThemeColors};
 
 use super::search::InteractiveSearch;
+
+/// Configuration needed for file reload
+#[derive(Clone)]
+pub struct ReloadConfig {
+    /// Override language for syntax highlighting
+    pub language: Option<String>,
+    /// Theme for syntax highlighting
+    pub theme: Theme,
+    /// Whether syntax highlighting is disabled
+    pub no_highlight: bool,
+    /// Whether to preserve ANSI codes
+    pub ansi: bool,
+}
 
 /// Pager mode
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +68,10 @@ pub struct App {
     pub max_width: usize,
     /// Cached wrapped lines (invalidated on resize or wrap mode change)
     pub wrapped_lines: Option<Vec<WrappedLine>>,
+    /// Whether the file has changed since last loaded/reloaded
+    pub file_changed: bool,
+    /// Configuration for file reload
+    pub reload_config: Option<ReloadConfig>,
 }
 
 /// A single display row, which may be part of a wrapped line
@@ -84,6 +101,7 @@ impl App {
         file_path: Option<PathBuf>,
         wrap_mode: WrapMode,
         max_width: usize,
+        reload_config: Option<ReloadConfig>,
     ) -> Self {
         Self {
             document,
@@ -104,6 +122,8 @@ impl App {
             wrap_mode,
             max_width,
             wrapped_lines: None,
+            file_changed: false,
+            reload_config,
         }
     }
 
@@ -150,6 +170,82 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Reload the file from disk
+    /// Returns true if reload was successful
+    pub fn reload_file(&mut self) -> bool {
+        let path = match &self.file_path {
+            Some(p) => p.clone(),
+            None => return false, // Can't reload stdin
+        };
+
+        let config = match &self.reload_config {
+            Some(c) => c.clone(),
+            None => return false, // No reload config available
+        };
+
+        // Read the file
+        let bytes = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(_) => return false,
+        };
+
+        // Detect encoding and decode
+        let encoding_name = detect_encoding(&bytes);
+        let text = match decode_bytes(bytes, encoding_name) {
+            Ok(t) => t,
+            Err(_) => return false,
+        };
+
+        // Strip ANSI unless configured to preserve
+        let text = if config.ansi { text } else { crate::input::strip_ansi(&text) };
+
+        // Expand tabs
+        let text = crate::input::expand_tabs(&text, 4);
+
+        // Create new document
+        let mut new_doc = Document::from_text(
+            &text,
+            self.document.source_name.clone(),
+            encoding_name.to_string(),
+        );
+
+        // Apply syntax highlighting if enabled
+        if !config.no_highlight {
+            apply_syntax_highlight(&mut new_doc, config.language.as_deref(), config.theme);
+        }
+
+        // Re-apply search highlighting if we have a search pattern
+        if let Some(ref state) = self.search_state {
+            apply_search_highlight(&mut new_doc, &state.pattern);
+        }
+
+        // Store current scroll position
+        let old_scroll = self.scroll_line;
+
+        // Update document
+        self.document = new_doc;
+
+        // Clear file changed flag
+        self.file_changed = false;
+
+        // Invalidate wrapped lines cache
+        self.wrapped_lines = None;
+
+        // Restore scroll position (clamped to new document bounds)
+        let max_scroll = self.document.line_count().saturating_sub(self.content_height());
+        self.scroll_line = old_scroll.min(max_scroll);
+
+        // Rebuild wrapped lines if in wrap mode
+        self.build_wrapped_lines();
+
+        // Update search state matches for new document
+        if let Some(ref mut state) = self.search_state {
+            state.find_matches(&self.document);
+        }
+
+        true
     }
 
     /// Enter search mode
@@ -578,7 +674,7 @@ mod tests {
     #[test]
     fn test_scroll_down() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None, test_theme_colors(), false, None, WrapMode::None, 200);
+        let mut app = App::new(doc, false, None, test_theme_colors(), false, None, WrapMode::None, 200, None);
         app.set_terminal_size(80, 24); // 23 content lines
 
         assert_eq!(app.scroll_line, 0);
@@ -593,7 +689,7 @@ mod tests {
     #[test]
     fn test_scroll_up() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None, test_theme_colors(), false, None, WrapMode::None, 200);
+        let mut app = App::new(doc, false, None, test_theme_colors(), false, None, WrapMode::None, 200, None);
         app.scroll_line = 50;
 
         app.scroll_up(10);
@@ -607,7 +703,7 @@ mod tests {
     #[test]
     fn test_go_to_top_bottom() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None, test_theme_colors(), false, None, WrapMode::None, 200);
+        let mut app = App::new(doc, false, None, test_theme_colors(), false, None, WrapMode::None, 200, None);
         app.set_terminal_size(80, 24);
         app.scroll_line = 50;
 
@@ -621,15 +717,15 @@ mod tests {
     #[test]
     fn test_gutter_width() {
         let doc = create_test_doc(9);
-        let app = App::new(doc, true, None, test_theme_colors(), false, None, WrapMode::None, 200);
+        let app = App::new(doc, true, None, test_theme_colors(), false, None, WrapMode::None, 200, None);
         assert_eq!(app.gutter_width(), 3); // " 9 "
 
         let doc = create_test_doc(99);
-        let app = App::new(doc, true, None, test_theme_colors(), false, None, WrapMode::None, 200);
+        let app = App::new(doc, true, None, test_theme_colors(), false, None, WrapMode::None, 200, None);
         assert_eq!(app.gutter_width(), 4); // " 99 "
 
         let doc = create_test_doc(999);
-        let app = App::new(doc, true, None, test_theme_colors(), false, None, WrapMode::None, 200);
+        let app = App::new(doc, true, None, test_theme_colors(), false, None, WrapMode::None, 200, None);
         assert_eq!(app.gutter_width(), 5); // " 999 "
     }
 
@@ -638,7 +734,7 @@ mod tests {
         // Create a document with lines that will wrap
         let text = "Short\nThis is a much longer line that should wrap at width 20\nAnother";
         let doc = Document::from_text(text, "test.txt".to_string(), "UTF-8".to_string());
-        let mut app = App::new(doc, false, None, test_theme_colors(), false, None, WrapMode::Wrap, 200);
+        let mut app = App::new(doc, false, None, test_theme_colors(), false, None, WrapMode::Wrap, 200, None);
         app.set_terminal_size(20, 10); // narrow width to force wrapping
 
         // Build wrapped lines
@@ -652,7 +748,7 @@ mod tests {
     #[test]
     fn test_wrap_mode_no_horizontal_scroll() {
         let doc = create_test_doc(10);
-        let mut app = App::new(doc, false, None, test_theme_colors(), false, None, WrapMode::Wrap, 200);
+        let mut app = App::new(doc, false, None, test_theme_colors(), false, None, WrapMode::Wrap, 200, None);
         app.set_terminal_size(80, 24);
 
         // Horizontal scroll should be disabled in wrap mode

@@ -599,6 +599,11 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         Mode::Normal => {
             let mut indicators = Vec::new();
 
+            // Show file changed indicator
+            if app.file_changed {
+                indicators.push("[CHANGED - R to reload]".to_string());
+            }
+
             // Show wrap mode indicator
             match app.wrap_mode {
                 WrapMode::Wrap => indicators.push("[WRAP]".to_string()),
