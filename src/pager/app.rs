@@ -54,8 +54,6 @@ pub struct App {
     pub theme_colors: ThemeColors,
     /// Interactive search state
     pub interactive_search: Option<InteractiveSearch>,
-    /// Whether case-insensitive search is enabled
-    pub ignore_case: bool,
     /// Whether follow mode is active
     pub follow_mode: bool,
     /// Follow reader for tailing files
@@ -97,7 +95,6 @@ impl App {
         show_line_numbers: bool,
         search_state: Option<SearchState>,
         theme_colors: ThemeColors,
-        ignore_case: bool,
         file_path: Option<PathBuf>,
         wrap_mode: WrapMode,
         max_width: usize,
@@ -115,7 +112,6 @@ impl App {
             search_state,
             theme_colors,
             interactive_search: None,
-            ignore_case,
             follow_mode: false,
             follow_reader: None,
             file_path,
@@ -674,7 +670,7 @@ mod tests {
     #[test]
     fn test_scroll_down() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None, test_theme_colors(), false, None, WrapMode::None, 200, None);
+        let mut app = App::new(doc, false, None, test_theme_colors(), None, WrapMode::None, 200, None);
         app.set_terminal_size(80, 24); // 23 content lines
 
         assert_eq!(app.scroll_line, 0);
@@ -689,7 +685,7 @@ mod tests {
     #[test]
     fn test_scroll_up() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None, test_theme_colors(), false, None, WrapMode::None, 200, None);
+        let mut app = App::new(doc, false, None, test_theme_colors(), None, WrapMode::None, 200, None);
         app.scroll_line = 50;
 
         app.scroll_up(10);
@@ -703,7 +699,7 @@ mod tests {
     #[test]
     fn test_go_to_top_bottom() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None, test_theme_colors(), false, None, WrapMode::None, 200, None);
+        let mut app = App::new(doc, false, None, test_theme_colors(), None, WrapMode::None, 200, None);
         app.set_terminal_size(80, 24);
         app.scroll_line = 50;
 
@@ -717,15 +713,15 @@ mod tests {
     #[test]
     fn test_gutter_width() {
         let doc = create_test_doc(9);
-        let app = App::new(doc, true, None, test_theme_colors(), false, None, WrapMode::None, 200, None);
+        let app = App::new(doc, true, None, test_theme_colors(), None, WrapMode::None, 200, None);
         assert_eq!(app.gutter_width(), 3); // " 9 "
 
         let doc = create_test_doc(99);
-        let app = App::new(doc, true, None, test_theme_colors(), false, None, WrapMode::None, 200, None);
+        let app = App::new(doc, true, None, test_theme_colors(), None, WrapMode::None, 200, None);
         assert_eq!(app.gutter_width(), 4); // " 99 "
 
         let doc = create_test_doc(999);
-        let app = App::new(doc, true, None, test_theme_colors(), false, None, WrapMode::None, 200, None);
+        let app = App::new(doc, true, None, test_theme_colors(), None, WrapMode::None, 200, None);
         assert_eq!(app.gutter_width(), 5); // " 999 "
     }
 
@@ -734,7 +730,7 @@ mod tests {
         // Create a document with lines that will wrap
         let text = "Short\nThis is a much longer line that should wrap at width 20\nAnother";
         let doc = Document::from_text(text, "test.txt".to_string(), "UTF-8".to_string());
-        let mut app = App::new(doc, false, None, test_theme_colors(), false, None, WrapMode::Wrap, 200, None);
+        let mut app = App::new(doc, false, None, test_theme_colors(), None, WrapMode::Wrap, 200, None);
         app.set_terminal_size(20, 10); // narrow width to force wrapping
 
         // Build wrapped lines
@@ -748,7 +744,7 @@ mod tests {
     #[test]
     fn test_wrap_mode_no_horizontal_scroll() {
         let doc = create_test_doc(10);
-        let mut app = App::new(doc, false, None, test_theme_colors(), false, None, WrapMode::Wrap, 200, None);
+        let mut app = App::new(doc, false, None, test_theme_colors(), None, WrapMode::Wrap, 200, None);
         app.set_terminal_size(80, 24);
 
         // Horizontal scroll should be disabled in wrap mode

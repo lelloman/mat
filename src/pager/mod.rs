@@ -162,7 +162,6 @@ pub fn run_pager(
         args.line_numbers,
         search_state,
         theme_colors,
-        args.ignore_case,
         file_path.clone(),
         args.wrap,
         args.max_width,
