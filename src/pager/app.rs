@@ -2,11 +2,14 @@ use std::path::PathBuf;
 
 use crate::cli::WrapMode;
 use crate::display::{Document, Line};
+use crate::filter::{apply_grep_highlight, grep_filter, GrepOptions};
 use crate::highlight::{apply_search_highlight, apply_syntax_highlight, SearchState};
 use crate::input::{decode_bytes, detect_encoding, FollowReader};
+use crate::markdown::render_markdown;
 use crate::theme::{Theme, ThemeColors};
 
 use super::search::InteractiveSearch;
+use super::{filter_line_range, parse_line_range};
 
 /// Configuration needed for file reload
 #[derive(Clone)]
@@ -19,6 +22,12 @@ pub struct ReloadConfig {
     pub no_highlight: bool,
     /// Whether to preserve ANSI codes
     pub ansi: bool,
+    /// Whether the original view rendered markdown instead of raw text
+    pub render_markdown: bool,
+    /// Optional line range filter from the command line
+    pub line_range: Option<String>,
+    /// Optional grep filter and highlight settings from the command line
+    pub grep_options: Option<GrepOptions>,
 }
 
 /// Pager mode
@@ -200,16 +209,36 @@ impl App {
         // Expand tabs
         let text = crate::input::expand_tabs(&text, 4);
 
-        // Create new document
-        let mut new_doc = Document::from_text(
-            &text,
-            self.document.source_name.clone(),
-            encoding_name.to_string(),
-        );
+        // Create new document using the same rendering path as initial load.
+        let mut new_doc = if config.render_markdown {
+            render_markdown(&text, self.document.source_name.clone())
+        } else {
+            Document::from_text(
+                &text,
+                self.document.source_name.clone(),
+                encoding_name.to_string(),
+            )
+        };
+
+        if let Some(ref range) = config.line_range {
+            let (start, end) = match parse_line_range(range, new_doc.line_count()) {
+                Ok(range) => range,
+                Err(_) => return false,
+            };
+            filter_line_range(&mut new_doc, start, end);
+        }
+
+        if let Some(ref opts) = config.grep_options {
+            new_doc = grep_filter(&new_doc, opts);
+        }
 
         // Apply syntax highlighting if enabled
-        if !config.no_highlight {
+        if !config.no_highlight && !config.render_markdown {
             apply_syntax_highlight(&mut new_doc, config.language.as_deref(), config.theme);
+        }
+
+        if let Some(ref opts) = config.grep_options {
+            apply_grep_highlight(&mut new_doc, &opts.pattern);
         }
 
         // Re-apply search highlighting if we have a search pattern
@@ -748,5 +777,42 @@ mod tests {
 
         app.scroll_left(10);
         assert_eq!(app.scroll_col, 0);
+    }
+
+    #[test]
+    fn test_reload_preserves_markdown_rendering() {
+        let temp = tempfile::NamedTempFile::with_suffix(".md").unwrap();
+        let initial_text = "# Initial\n\nBody text\n";
+        let updated_text = "# Updated\n\nMore body text\n";
+        std::fs::write(temp.path(), initial_text).unwrap();
+
+        let source_name = temp.path().display().to_string();
+        let doc = render_markdown(initial_text, source_name.clone());
+        let expected = render_markdown(updated_text, source_name);
+        let mut app = App::new(
+            doc,
+            false,
+            None,
+            test_theme_colors(),
+            Some(temp.path().to_path_buf()),
+            WrapMode::None,
+            200,
+            Some(ReloadConfig {
+                language: None,
+                theme: Theme::Dark,
+                no_highlight: false,
+                ansi: false,
+                render_markdown: true,
+                line_range: None,
+                grep_options: None,
+            }),
+        );
+
+        std::fs::write(temp.path(), updated_text).unwrap();
+
+        assert!(app.reload_file());
+        assert_eq!(app.document.lines.len(), expected.lines.len());
+        assert_eq!(app.document.lines[0].spans, expected.lines[0].spans);
+        assert!(!app.document.lines[0].text().contains('#'));
     }
 }

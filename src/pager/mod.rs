@@ -18,6 +18,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use crate::cli::Args;
 use crate::display::Document;
 use crate::error::MatError;
+use crate::filter::GrepOptions;
 use crate::highlight::SearchState;
 use crate::theme::{get_theme, ThemeColors};
 
@@ -117,6 +118,7 @@ pub fn run_pager(
     args: &Args,
     search_state: Option<SearchState>,
     file_path: Option<std::path::PathBuf>,
+    render_markdown: bool,
 ) -> Result<(), MatError> {
     // Set up panic hook to restore terminal on panic
     let original_hook = panic::take_hook();
@@ -149,11 +151,15 @@ pub fn run_pager(
     let theme_colors = ThemeColors::for_theme(theme);
 
     // Create reload config if viewing a file
+    let grep_options = GrepOptions::from_args(args)?;
     let reload_config = file_path.as_ref().map(|_| ReloadConfig {
         language: args.language.clone(),
         theme,
         no_highlight: args.no_highlight,
         ansi: args.ansi,
+        render_markdown,
+        line_range: args.lines.clone(),
+        grep_options,
     });
 
     // Create app with search state and theme

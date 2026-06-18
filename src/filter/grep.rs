@@ -5,7 +5,7 @@ use crate::display::{Document, Line, SpanStyle, StyledSpan};
 use crate::error::MatError;
 
 /// Options for grep filtering
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GrepOptions {
     /// Compiled regex pattern
     pub pattern: Regex,

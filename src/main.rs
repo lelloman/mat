@@ -101,7 +101,13 @@ fn run(args: Args) -> Result<(), MatError> {
             path: std::path::PathBuf::from("stdout"),
         })?;
     } else {
-        run_pager(document, &args, search_state, file_path)?;
+        run_pager(
+            document,
+            &args,
+            search_state,
+            file_path,
+            should_render_markdown,
+        )?;
     }
 
     Ok(())
