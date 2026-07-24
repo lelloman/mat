@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0 (unreleased)
+
+- Added automatic direct output and `--color auto|always|never`
+- Added safe SGR-only `--ansi` parsing and terminal-state restoration
+- Unified initial load, reload, and follow processing
+- Fixed BOM-aware UTF-16 detection and documented Windows-1252 fallback
+- Preserved base styling under grep/search overlays and dimmed context lines
+- Improved wrapping, display-width calculations, rotation handling, and CLI validation
+- Removed the unused memory-mapped large-file prototype and modernized dependencies
+- Raised the minimum supported Rust version to 1.88
+
+## 0.2.1
+
+- Fixed reloads so Markdown rendering and configured filters/highlighting are preserved
+
 ## 0.2.0
 
 - File change detection with automatic notification when viewed file is modified externally

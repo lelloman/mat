@@ -1,0 +1,23 @@
+[advisories]
+ignore = [
+    # Build-only Syntect asset serialization; remove with the upstream asset-pipeline migration.
+    "RUSTSEC-2025-0141",
+    # Build-only Syntect YAML parser; remove with the upstream asset-pipeline migration.
+    "RUSTSEC-2024-0320",
+]
+
+[licenses]
+confidence-threshold = 0.8
+allow = [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "WTFPL",
+    "Zlib",
+]

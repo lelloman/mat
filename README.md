@@ -1,182 +1,110 @@
 # mat
 
-A modern terminal file viewer combining the best of `cat`, `less`, and `grep` with syntax highlighting and markdown rendering.
+`mat` is a terminal file viewer that combines direct `cat`-style output, an
+interactive pager, grep filtering, search, syntax highlighting, and Markdown
+rendering.
 
-## Features
-
-- **Syntax Highlighting** - Automatic language detection with 50+ languages supported
-- **Markdown Rendering** - Beautiful formatted output for `.md` files with styled headings, code blocks, lists, and more
-- **Grep Filtering** - Filter content with regex patterns, with context lines support
-- **Search & Navigate** - Highlight matches and jump between them with `n`/`N`
-- **Follow Mode** - Tail files in real-time like `tail -f`
-- **Large File Support** - Efficient memory-mapped loading for files >10MB
-- **Theme Detection** - Automatically adapts to light/dark terminal themes
+Version 0.3.0 is currently unreleased and requires Rust 1.88 or newer.
 
 ## Installation
 
 ```bash
-cargo install mat
+cargo install mat-o-viewer
 ```
 
-Or build from source:
+To build the unreleased version:
 
 ```bash
-git clone https://github.com/yourusername/mat
+git clone https://github.com/lelloman/mat
 cd mat
 cargo build --release
 ```
 
-## Usage
+## Output and color
+
+`mat FILE` opens the pager when stdout is a terminal. When stdout is redirected
+or piped, it prints directly; `--no-pager` also forces direct output.
+`--follow` is pager-only.
+
+`--color auto` is the default: terminal output is styled, while pipes and
+`NO_COLOR` output are plain. `--color always` emits ANSI SGR styling even to a
+pipe, and `--color never` disables generated styling and styling from `--ansi`.
+
+Input escape sequences are removed by default. With `--ansi`, only SGR text
+styling is interpreted. Cursor movement, OSC commands, hyperlinks, and other
+terminal controls are discarded.
+
+## Examples
 
 ```bash
-# View a file
-mat file.txt
-
-# View with line numbers
-mat -n file.txt
-
-# Pipe from stdin
-cat file.txt | mat
-echo "hello world" | mat
-
-# Force syntax highlighting language
-cat config | mat -l yaml
-```
-
-### Grep Mode
-
-Filter to matching lines (like `grep`, but with context and paging):
-
-```bash
-# Show only matching lines
-mat -g "pattern" file.txt
-
-# With context lines
-mat -g "error" -C 3 logfile.txt    # 3 lines before and after
-mat -g "error" -B 2 -A 5 log.txt   # 2 before, 5 after
-
-# Case insensitive
-mat -g -i "warning" file.txt
-
-# Fixed string (not regex)
-mat -g -F "literal[string" file.txt
-```
-
-### Search Mode
-
-Highlight all matches of a pattern:
-
-```bash
-# Highlight pattern
-mat -s "TODO" file.txt
-
-# Then use n/N to jump between matches
-```
-
-### Markdown Rendering
-
-```bash
-# Auto-detected for .md files
 mat README.md
-
-# Force markdown rendering
-mat -m somefile.txt
-
-# Disable markdown rendering
-mat -M README.md
+mat -n src/main.rs
+mat -g 'error|warning' -C 2 application.log
+mat -s TODO src/main.rs
+mat -L 10:30 file.txt
+cat config | mat -l yaml
+mat --color always README.md > rendered.ansi
 ```
 
-### Follow Mode
+For Markdown, both line ranges and grep operate on rendered display lines, not
+the original Markdown source lines.
 
-Watch a file for changes (like `tail -f`):
+## Input and limitations
 
-```bash
-mat -f /var/log/syslog
+Input is fully loaded in memory. UTF-8 (with or without BOM), BOM-marked
+UTF-16LE/BE, and Windows-1252 fallback are supported. Binary detection can be
+overridden with `--force-binary`.
+
+Follow mode reloads the complete file through the same decoding, rendering,
+range, highlighting, grep, and search pipeline after coalesced filesystem
+events. This favors correctness across truncation and file rotation, but is not
+optimized for very large or rapidly changing logs. Lazy/streaming large-file
+support is intentionally deferred.
+
+## Main options
+
+```text
+-n, --line-numbers
+-N, --no-highlight
+-m, --markdown
+-M, --no-markdown
+-f, --follow
+-s, --search <PAT>
+-g, --grep <PAT>
+-i, --ignore-case
+-F, --fixed-strings
+-w, --word-regexp
+-x, --line-regexp
+-A, --after <N>
+-B, --before <N>
+-C, --context <N>
+    --wrap <none|wrap|truncate>
+-W, --max-width <N>
+-l, --language <LANG>
+-t, --theme <light|dark>
+-L, --lines <RANGE>
+-P, --no-pager
+    --color <auto|always|never>
+    --ansi
+    --force-binary
 ```
 
-### Line Selection
+Run `mat --help` for the authoritative command-line reference.
 
-View specific line ranges:
+## Pager keys
 
-```bash
-mat -L 10:20 file.txt   # Lines 10-20
-mat -L 50: file.txt     # Line 50 to end
-mat -L :100 file.txt    # First 100 lines
-mat -L 42 file.txt      # Just line 42
-```
+`j`/`k` or arrows scroll, `d`/`u` move half a page, `g`/`G` go to the
+top/bottom, `/` and `?` search, `n`/`N` navigate matches, `#` toggles line
+numbers, `R` reloads, `f` toggles follow, and `q` quits.
 
-## Keybindings
+## Dependency security
 
-| Key | Action |
-|-----|--------|
-| `j` / `↓` | Scroll down one line |
-| `k` / `↑` | Scroll up one line |
-| `h` / `←` | Scroll left |
-| `l` / `→` | Scroll right |
-| `d` / `Page Down` | Scroll down half page |
-| `u` / `Page Up` | Scroll up half page |
-| `g` / `Home` | Go to top |
-| `G` / `End` | Go to bottom |
-| `0` | Scroll to line start |
-| `$` | Scroll to line end |
-| `/` | Open search prompt |
-| `n` | Next search match |
-| `N` | Previous search match |
-| `f` | Toggle follow mode |
-| `q` / `Esc` | Quit |
-
-## Options
-
-```
-Usage: mat [OPTIONS] [FILE]
-
-Arguments:
-  [FILE]  File to view (use '-' for stdin)
-
-Options:
-  -n, --line-numbers      Show line numbers
-  -N, --no-highlight      Disable syntax highlighting
-  -m, --markdown          Force markdown rendering
-  -M, --no-markdown       Disable markdown rendering
-  -f, --follow            Follow mode (like tail -f)
-  -s, --search <PATTERN>  Highlight pattern matches
-  -g, --grep <PATTERN>    Filter to matching lines
-  -i, --ignore-case       Case-insensitive search/grep
-  -F, --fixed-strings     Treat pattern as literal string
-  -w, --word-regexp       Match whole words only
-  -x, --line-regexp       Match whole lines only
-  -A, --after <N>         Lines to show after grep match
-  -B, --before <N>        Lines to show before grep match
-  -C, --context <N>       Lines to show before and after match
-      --wrap <MODE>       Line wrap mode: none, wrap, truncate
-  -W, --max-width <N>     Max line width for truncation
-  -l, --language <LANG>   Force syntax highlighting language
-  -t, --theme <THEME>     Color theme (light/dark)
-  -L, --lines <RANGE>     Show line range (e.g., 10:20, :50, 100:)
-  -P, --no-pager          Print directly without pager
-      --ansi              Preserve ANSI escape codes in input
-      --force-binary      Force display of binary files
-  -h, --help              Print help
-  -V, --version           Print version
-```
-
-## Highlighting
-
-### Grep vs Search
-
-- **Grep** (`-g`): Filters the file to show only matching lines (with optional context). Matches highlighted in **cyan**.
-- **Search** (`-s`): Shows the entire file with matches highlighted in **yellow**. Use `n`/`N` to navigate.
-
-You can use both together:
-```bash
-mat -g "error" -s "critical" logfile.txt
-```
-
-### Supported Languages
-
-mat uses [syntect](https://github.com/trishume/syntect) for syntax highlighting and supports 50+ languages including:
-
-Rust, Python, JavaScript, TypeScript, Go, C, C++, Java, Ruby, PHP, Swift, Kotlin, Scala, Haskell, Lua, Perl, R, SQL, HTML, CSS, JSON, YAML, TOML, Markdown, Bash, and many more.
+Syntect is built with the pure-Rust fancy-regex backend and only the features
+needed to load precompiled runtime syntax/theme assets. This avoids native
+Oniguruma and the unused plist/XML dependency path. Custom syntax compilation
+temporarily retains build-time `bincode` and `yaml-rust`; these unmaintained
+build-only dependencies are tracked exceptions until Syntect provides a
+replacement asset pipeline.
 
 ## License
 
