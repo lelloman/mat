@@ -1,6 +1,6 @@
 [package]
 name = "mat-o-viewer"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 description = "A modern terminal file viewer combining cat, less, and grep with syntax highlighting and markdown rendering"
 license = "MIT"
@@ -10,34 +10,33 @@ homepage = "https://github.com/lelloman/mat"
 keywords = ["cli", "terminal", "cat", "less", "pager"]
 categories = ["command-line-utilities", "text-processing"]
 readme = "README.md"
-rust-version = "1.70"
+rust-version = "1.88"
 
 [[bin]]
 name = "mat"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
-ratatui = "0.28"
-crossterm = "0.28"
-syntect = "5"
-pulldown-cmark = "0.12"
-terminal-light = "1"
-regex = "1"
-anyhow = "1"
-thiserror = "1"
-once_cell = "1"
-memmap2 = "0.9"
+clap = { version = "4.6", features = ["derive"] }
+ratatui = "0.30.2"
+crossterm = "0.29"
+syntect = { version = "5.3", default-features = false, features = ["parsing", "default-syntaxes", "default-themes", "dump-load", "regex-fancy"] }
+pulldown-cmark = "0.13"
+terminal-light = "1.9"
+regex = "1.13"
+thiserror = "2"
 unicode-width = "0.2"
-lru = "0.12"
+unicode-segmentation = "1.12"
 encoding_rs = "0.8"
-notify = "6"
+notify = "8.2"
 
 [build-dependencies]
-syntect = "5"
+syntect = { version = "5.3", default-features = false, features = ["parsing", "default-syntaxes", "yaml-load", "dump-create", "regex-fancy"] }
 
 [dev-dependencies]
 tempfile = "3"
 assert_cmd = "2"
-predicates = "3"
-proptest = "1"
+
+[profile.release]
+strip = true
+lto = "thin"
