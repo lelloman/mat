@@ -1,14 +1,10 @@
+use std::io::Write;
 use std::process::Command;
 use tempfile::NamedTempFile;
-use std::io::Write;
 
 /// Get the path to the mat binary
 fn mat_binary() -> std::path::PathBuf {
-    let mut path = std::env::current_exe().unwrap();
-    path.pop(); // Remove test binary name
-    path.pop(); // Remove deps
-    path.push("mat");
-    path
+    assert_cmd::cargo::cargo_bin!("mat").to_path_buf()
 }
 
 /// Run mat with given args and return (stdout, stderr, exit_code)
@@ -21,6 +17,7 @@ fn run_mat(args: &[&str]) -> (String, String, i32) {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .env("TERM", "dumb")
+        .env_remove("NO_COLOR")
         .output()
         .expect("Failed to execute mat");
 
@@ -33,8 +30,8 @@ fn run_mat(args: &[&str]) -> (String, String, i32) {
 
 /// Run mat with stdin input
 fn run_mat_with_stdin(args: &[&str], stdin: &str) -> (String, String, i32) {
-    use std::process::Stdio;
     use std::io::Write;
+    use std::process::Stdio;
 
     let mut child = Command::new(mat_binary())
         .args(args)
@@ -42,6 +39,7 @@ fn run_mat_with_stdin(args: &[&str], stdin: &str) -> (String, String, i32) {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .env("TERM", "dumb")
+        .env_remove("NO_COLOR")
         .spawn()
         .expect("Failed to execute mat");
 
@@ -82,6 +80,13 @@ fn test_file_not_found() {
     let (_, stderr, code) = run_mat(&["-P", "nonexistent_file_12345.txt"]);
     assert_eq!(code, 1);
     assert!(stderr.contains("nonexistent") || stderr.contains("No such file"));
+}
+
+#[test]
+fn test_missing_input_is_usage_error() {
+    let (_, stderr, code) = run_mat(&[]);
+    assert_eq!(code, 2);
+    assert!(stderr.contains("No input file"));
 }
 
 // ============ Basic File Reading Tests ============
@@ -236,7 +241,9 @@ fn test_grep_word_boundary() {
     assert!(stdout.contains("a test here"));
     // "testing" should not match with -w
     let lines: Vec<&str> = stdout.lines().collect();
-    assert!(!lines.iter().any(|l| l.contains("testing") && !l.contains("a test")));
+    assert!(!lines
+        .iter()
+        .any(|l| l.contains("testing") && !l.contains("a test")));
 }
 
 #[test]
@@ -323,4 +330,114 @@ fn test_tab_expansion() {
     // Tabs should be expanded to spaces
     assert!(stdout.contains("a") && stdout.contains("b"));
     assert!(!stdout.contains('\t'));
+}
+
+#[test]
+fn test_cli_rejects_conflicting_and_meaningless_options() {
+    for args in [
+        vec!["--markdown", "--no-markdown", "-"],
+        vec!["--grep", "x", "--context", "1", "--before", "1", "-"],
+        vec!["--context", "1", "-"],
+        vec!["--no-highlight", "--language", "rust", "-"],
+        vec!["--ignore-case", "-"],
+        vec!["--max-width", "0", "-"],
+        vec!["--theme", "sepia", "-"],
+    ] {
+        let (_, _, code) = run_mat_with_stdin(&args, "text\n");
+        assert_eq!(code, 2, "arguments were unexpectedly accepted: {args:?}");
+    }
+}
+
+#[test]
+fn test_out_of_bounds_range_is_invalid_but_end_is_clamped() {
+    let mut temp = NamedTempFile::new().unwrap();
+    writeln!(temp, "one\ntwo\nthree").unwrap();
+    let path = temp.path().to_str().unwrap();
+
+    let (_, _, code) = run_mat(&["--lines", "4:99", path]);
+    assert_eq!(code, 2);
+
+    let (stdout, _, code) = run_mat(&["--lines", "2:99", path]);
+    assert_eq!(code, 0);
+    assert_eq!(stdout, "two\nthree\n");
+}
+
+#[test]
+fn test_color_modes_for_redirected_output() {
+    let mut temp = NamedTempFile::with_suffix(".md").unwrap();
+    writeln!(temp, "# Heading").unwrap();
+    let path = temp.path().to_str().unwrap();
+
+    let (auto, _, _) = run_mat(&["--color", "auto", path]);
+    let (always, _, _) = run_mat(&["--color", "always", path]);
+    let (never, _, _) = run_mat(&["--color", "never", path]);
+    assert!(!auto.contains("\x1b["));
+    assert!(always.contains("\x1b["));
+    assert!(!never.contains("\x1b["));
+}
+
+#[test]
+fn test_bom_encodings_are_text_and_windows_1252_falls_back() {
+    for bytes in [
+        vec![0xff, 0xfe, b'H', 0, b'i', 0, b'\n', 0],
+        vec![0xfe, 0xff, 0, b'H', 0, b'i', 0, b'\n'],
+        vec![0xef, 0xbb, 0xbf, b'H', b'i', b'\n'],
+    ] {
+        let mut temp = NamedTempFile::new().unwrap();
+        temp.write_all(&bytes).unwrap();
+        let (stdout, stderr, code) = run_mat(&[temp.path().to_str().unwrap()]);
+        assert_eq!(code, 0, "{stderr}");
+        assert!(stdout.contains("Hi"));
+        assert!(!stdout.contains('\u{feff}'));
+    }
+
+    let mut temp = NamedTempFile::new().unwrap();
+    temp.write_all(&[0x93, b'h', b'i', 0x94, b'\n']).unwrap();
+    let (stdout, _, code) = run_mat(&[temp.path().to_str().unwrap()]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("“hi”"));
+}
+
+#[test]
+fn test_ansi_accepts_sgr_but_discards_terminal_controls() {
+    let mut temp = NamedTempFile::new().unwrap();
+    temp.write_all(b"\x1b[31mred\x1b[0m\x1b[2J\x1b[10;10H\x1b]0;owned\x07safe\n")
+        .unwrap();
+    let (stdout, _, code) =
+        run_mat(&["--ansi", "--color", "always", temp.path().to_str().unwrap()]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("\x1b[31mred"));
+    assert!(stdout.contains("safe"));
+    assert!(!stdout.contains("[2J"));
+    assert!(!stdout.contains("[10;10H"));
+    assert!(!stdout.contains("owned"));
+}
+
+#[test]
+fn test_follow_is_rejected_for_direct_output() {
+    let mut temp = NamedTempFile::new().unwrap();
+    writeln!(temp, "line").unwrap();
+    let (_, stderr, code) = run_mat(&["--follow", temp.path().to_str().unwrap()]);
+    assert_eq!(code, 2);
+    assert!(stderr.contains("interactive pager"));
+}
+
+#[test]
+fn test_broken_stdout_pipe_is_a_normal_exit() {
+    use std::process::Stdio;
+
+    let mut temp = NamedTempFile::new().unwrap();
+    for _ in 0..50_000 {
+        writeln!(temp, "a sufficiently long output line to fill the pipe").unwrap();
+    }
+    let mut child = Command::new(mat_binary())
+        .arg(temp.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(child.stdout.take());
+    let status = child.wait().unwrap();
+    assert!(status.success());
 }
