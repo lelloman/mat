@@ -120,6 +120,7 @@ pub fn highlight_style() -> SpanStyle {
         bold: true,
         italic: false,
         underline: false,
+        dim: false,
     }
 }
 
@@ -168,7 +169,7 @@ pub fn apply_search_highlight(document: &mut Document, pattern: &Regex) {
                 if overlap_end > overlap_start {
                     new_spans.push(StyledSpan::new(
                         &span.text[overlap_start..overlap_end],
-                        search_style.clone(),
+                        span.style.overlay(&search_style),
                     ));
                 }
 
@@ -177,10 +178,7 @@ pub fn apply_search_highlight(document: &mut Document, pattern: &Regex) {
 
             // Add remaining text after last match (with original style)
             if last_pos < span.text.len() {
-                new_spans.push(StyledSpan::new(
-                    &span.text[last_pos..],
-                    span.style.clone(),
-                ));
+                new_spans.push(StyledSpan::new(&span.text[last_pos..], span.style.clone()));
             }
 
             char_offset = span_end;
@@ -212,7 +210,10 @@ fn highlight_line(text: &str, pattern: &Regex, style: &SpanStyle) -> Vec<StyledS
         }
 
         // Add matching portion with highlight
-        spans.push(StyledSpan::new(&text[mat.start()..mat.end()], style.clone()));
+        spans.push(StyledSpan::new(
+            &text[mat.start()..mat.end()],
+            style.clone(),
+        ));
 
         last_end = mat.end();
     }
@@ -315,5 +316,16 @@ mod tests {
         // Prev goes back to last
         assert_eq!(state.prev_match(), Some(5));
         assert_eq!(state.current_match, Some(2));
+    }
+
+    #[test]
+    fn search_overlay_takes_precedence_and_preserves_base_modifiers() {
+        let mut doc = Document::from_text("critical", "test".into(), "UTF-8".into());
+        doc.lines[0].spans[0].style = SpanStyle::new().fg(Color::Red).bg(Color::Cyan).underline();
+        apply_search_highlight(&mut doc, &Regex::new("critical").unwrap());
+        let style = &doc.lines[0].spans[0].style;
+        assert_eq!(style.bg, Some(Color::Yellow));
+        assert_eq!(style.fg, Some(Color::Black));
+        assert!(style.underline);
     }
 }

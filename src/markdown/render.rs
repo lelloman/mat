@@ -2,9 +2,15 @@ use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, T
 use ratatui::style::Color;
 
 use crate::display::{Document, Line, SpanStyle, StyledSpan};
+use crate::theme::Theme;
 
 /// Render markdown text to a styled document
-pub fn render_markdown(text: &str, source_name: String) -> Document {
+pub fn render_markdown(
+    text: &str,
+    source_name: String,
+    encoding: String,
+    theme: Theme,
+) -> Document {
     let options = Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TABLES
         | Options::ENABLE_TASKLISTS
@@ -15,14 +21,32 @@ pub fn render_markdown(text: &str, source_name: String) -> Document {
     let mut renderer = MarkdownRenderer::new();
     renderer.render(parser);
 
-    let lines = renderer.into_lines();
+    let mut lines = renderer.into_lines();
+    if theme == Theme::Light {
+        for span in lines.iter_mut().flat_map(|line| &mut line.spans) {
+            span.style.fg = span.style.fg.map(light_theme_color);
+        }
+    }
     let max_width = lines.iter().map(|l| l.width()).max().unwrap_or(0);
 
     Document {
         lines,
         max_line_width: max_width,
         source_name,
-        encoding: "UTF-8".to_string(),
+        encoding,
+    }
+}
+
+fn light_theme_color(color: Color) -> Color {
+    match color {
+        Color::White => Color::Black,
+        Color::LightRed => Color::Red,
+        Color::LightGreen => Color::Green,
+        Color::LightYellow => Color::Yellow,
+        Color::LightBlue => Color::Blue,
+        Color::LightMagenta => Color::Magenta,
+        Color::LightCyan => Color::Cyan,
+        other => other,
     }
 }
 
@@ -90,11 +114,10 @@ impl MarkdownRenderer {
             Event::HardBreak => self.new_line(),
             Event::Rule => self.add_horizontal_rule(),
             Event::TaskListMarker(checked) => self.add_task_marker(checked),
-            Event::FootnoteReference(_) => {} // Skip footnotes for now
-            Event::Html(_) => {}              // Skip raw HTML
-            Event::InlineHtml(_) => {}        // Skip inline HTML
-            Event::InlineMath(_) => {}        // Skip math for now
-            Event::DisplayMath(_) => {}       // Skip math for now
+            Event::FootnoteReference(label) => self.add_text(&format!("[^{label}]")),
+            Event::Html(html) | Event::InlineHtml(html) => self.add_text(&html),
+            Event::InlineMath(math) => self.add_text(&format!("${math}$")),
+            Event::DisplayMath(math) => self.add_text(&format!("$${math}$$")),
         }
     }
 
@@ -158,7 +181,8 @@ impl MarkdownRenderer {
                 self.flush_line();
             }
             Tag::List(start) => {
-                if self.list_depth == 0 && (!self.current_line.is_empty() || !self.lines.is_empty()) {
+                if self.list_depth == 0 && (!self.current_line.is_empty() || !self.lines.is_empty())
+                {
                     self.flush_line();
                 }
                 self.list_depth += 1;
@@ -173,7 +197,7 @@ impl MarkdownRenderer {
                 self.needs_list_prefix = true;
             }
             Tag::Emphasis => {
-                let style = SpanStyle::new().fg(Color::Yellow);
+                let style = SpanStyle::new().fg(Color::Yellow).italic();
                 self.push_style(style);
             }
             Tag::Strong => {
@@ -201,10 +225,9 @@ impl MarkdownRenderer {
             Tag::TableHead | Tag::TableRow | Tag::TableCell => {}
             Tag::FootnoteDefinition(_) => {}
             Tag::MetadataBlock(_) => {}
-            Tag::DefinitionList
-            | Tag::DefinitionListTitle
-            | Tag::DefinitionListDefinition => {}
+            Tag::DefinitionList | Tag::DefinitionListTitle | Tag::DefinitionListDefinition => {}
             Tag::HtmlBlock => {}
+            Tag::Superscript | Tag::Subscript => {}
         }
     }
 
@@ -217,7 +240,8 @@ impl MarkdownRenderer {
                     match level {
                         HeadingLevel::H1 => {
                             // Calculate content width (includes "║  " prefix which is 3 chars)
-                            let content_width: usize = self.current_line.iter().map(|s| s.width()).sum();
+                            let content_width: usize =
+                                self.current_line.iter().map(|s| s.width()).sum();
                             // We'll add " ║" (2 chars), total line = content_width + 2
                             // Border line = ╔ + ═×N + ╗, total = N + 2
                             // For alignment: N + 2 = content_width + 2, so N = content_width
@@ -293,7 +317,8 @@ impl MarkdownRenderer {
             }
             TagEnd::Image => {
                 self.pop_style();
-                self.current_line.push(StyledSpan::new("]", SpanStyle::new().fg(Color::Magenta)));
+                self.current_line
+                    .push(StyledSpan::new("]", SpanStyle::new().fg(Color::Magenta)));
             }
             TagEnd::Table => {}
             TagEnd::TableHead | TagEnd::TableRow => {
@@ -308,6 +333,7 @@ impl MarkdownRenderer {
             | TagEnd::DefinitionListTitle
             | TagEnd::DefinitionListDefinition => {}
             TagEnd::HtmlBlock => {}
+            TagEnd::Superscript | TagEnd::Subscript => {}
         }
     }
 
@@ -437,6 +463,7 @@ impl MarkdownRenderer {
             bold: style.bold || current.bold,
             italic: style.italic || current.italic,
             underline: style.underline || current.underline,
+            dim: style.dim || current.dim,
         };
         self.style_stack.push(merged);
     }
@@ -482,18 +509,21 @@ mod tests {
     #[test]
     fn test_render_heading() {
         let md = "# Hello World";
-        let doc = render_markdown(md, "test.md".to_string());
+        let doc = render_markdown(md, "test.md".to_string(), "UTF-8".to_string(), Theme::Dark);
 
         assert!(!doc.lines.is_empty(), "Document should have lines");
         // H1 now has a frame, so "Hello World" is on line 1 (after top border)
         let all_text: String = doc.lines.iter().map(|l| l.text()).collect();
-        assert!(all_text.contains("Hello World"), "Expected 'Hello World' in document");
+        assert!(
+            all_text.contains("Hello World"),
+            "Expected 'Hello World' in document"
+        );
     }
 
     #[test]
     fn test_render_code_block() {
         let md = "```rust\nfn main() {}\n```";
-        let doc = render_markdown(md, "test.md".to_string());
+        let doc = render_markdown(md, "test.md".to_string(), "UTF-8".to_string(), Theme::Dark);
 
         // Should have code block markers and content
         assert!(doc.lines.len() >= 3);
@@ -502,7 +532,7 @@ mod tests {
     #[test]
     fn test_render_list() {
         let md = "- Item 1\n- Item 2\n- Item 3";
-        let doc = render_markdown(md, "test.md".to_string());
+        let doc = render_markdown(md, "test.md".to_string(), "UTF-8".to_string(), Theme::Dark);
 
         assert!(doc.lines.len() >= 3);
         let text = doc.lines[0].text();
@@ -512,7 +542,7 @@ mod tests {
     #[test]
     fn test_render_inline_code() {
         let md = "Use `println!` to print";
-        let doc = render_markdown(md, "test.md".to_string());
+        let doc = render_markdown(md, "test.md".to_string(), "UTF-8".to_string(), Theme::Dark);
 
         let text = doc.lines[0].text();
         assert!(text.contains("println!"));
@@ -521,10 +551,41 @@ mod tests {
     #[test]
     fn test_render_emphasis() {
         let md = "This is *italic* and **bold**";
-        let doc = render_markdown(md, "test.md".to_string());
+        let doc = render_markdown(md, "test.md".to_string(), "UTF-8".to_string(), Theme::Dark);
 
         let text = doc.lines[0].text();
         assert!(text.contains("italic"));
         assert!(text.contains("bold"));
+    }
+
+    #[test]
+    fn test_markdown_palette_is_theme_aware() {
+        let dark = render_markdown(
+            "# Heading",
+            "test.md".into(),
+            "UTF-16LE".into(),
+            Theme::Dark,
+        );
+        let light = render_markdown(
+            "# Heading",
+            "test.md".into(),
+            "UTF-16LE".into(),
+            Theme::Light,
+        );
+        assert_eq!(dark.encoding, "UTF-16LE");
+        let dark_heading = dark
+            .lines
+            .iter()
+            .flat_map(|line| &line.spans)
+            .find(|span| span.text.contains("Heading"))
+            .unwrap();
+        let light_heading = light
+            .lines
+            .iter()
+            .flat_map(|line| &line.spans)
+            .find(|span| span.text.contains("Heading"))
+            .unwrap();
+        assert_eq!(dark_heading.style.fg, Some(Color::White));
+        assert_eq!(light_heading.style.fg, Some(Color::Black));
     }
 }

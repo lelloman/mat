@@ -9,6 +9,7 @@ pub struct SpanStyle {
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
+    pub dim: bool,
 }
 
 impl SpanStyle {
@@ -36,7 +37,6 @@ impl SpanStyle {
     }
 
     /// Set italic
-    #[allow(dead_code)]
     pub fn italic(mut self) -> Self {
         self.italic = true;
         self
@@ -45,6 +45,12 @@ impl SpanStyle {
     /// Set underline
     pub fn underline(mut self) -> Self {
         self.underline = true;
+        self
+    }
+
+    /// Set dim intensity.
+    pub fn dim(mut self) -> Self {
+        self.dim = true;
         self
     }
 
@@ -69,6 +75,9 @@ impl SpanStyle {
         if self.underline {
             modifiers |= Modifier::UNDERLINED;
         }
+        if self.dim {
+            modifiers |= Modifier::DIM;
+        }
 
         if !modifiers.is_empty() {
             style = style.add_modifier(modifiers);
@@ -84,6 +93,21 @@ impl SpanStyle {
             && !self.bold
             && !self.italic
             && !self.underline
+            && !self.dim
+    }
+}
+
+impl SpanStyle {
+    /// Overlay non-default style attributes while retaining underlying styling.
+    pub fn overlay(&self, overlay: &Self) -> Self {
+        Self {
+            fg: overlay.fg.or(self.fg),
+            bg: overlay.bg.or(self.bg),
+            bold: self.bold || overlay.bold,
+            italic: self.italic || overlay.italic,
+            underline: self.underline || overlay.underline,
+            dim: self.dim || overlay.dim,
+        }
     }
 }
 
@@ -126,8 +150,7 @@ pub struct Line {
     pub spans: Vec<StyledSpan>,
     /// Whether this line is a grep match
     pub is_match: bool,
-    /// Whether this line is grep context (for future use with context styling)
-    #[allow(dead_code)]
+    /// Whether this line is grep context
     pub is_context: bool,
 }
 
@@ -146,10 +169,7 @@ impl Line {
     pub fn separator() -> Self {
         Self {
             number: 0,
-            spans: vec![StyledSpan::new(
-                "--",
-                SpanStyle::new().fg(Color::DarkGray),
-            )],
+            spans: vec![StyledSpan::new("--", SpanStyle::new().fg(Color::DarkGray))],
             is_match: false,
             is_context: false,
         }

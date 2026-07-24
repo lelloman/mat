@@ -1,32 +1,18 @@
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
+
+use clap::ValueEnum;
 use ratatui::style::Color;
 
 /// Detected or configured theme
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
 pub enum Theme {
     Light,
+    #[default]
     Dark,
 }
 
-impl Theme {
-    /// Parse theme from string
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "light" => Some(Theme::Light),
-            "dark" => Some(Theme::Dark),
-            _ => None,
-        }
-    }
-}
-
-impl Default for Theme {
-    fn default() -> Self {
-        Theme::Dark
-    }
-}
-
 /// Lazily detected theme
-static DETECTED_THEME: Lazy<Theme> = Lazy::new(detect_terminal_theme);
+static DETECTED_THEME: LazyLock<Theme> = LazyLock::new(detect_terminal_theme);
 
 /// Detect the terminal's color scheme (light or dark)
 fn detect_terminal_theme() -> Theme {
@@ -76,16 +62,12 @@ pub fn detected_theme() -> Theme {
 }
 
 /// Get theme from CLI arg or auto-detect
-pub fn get_theme(theme_arg: Option<&str>) -> Theme {
-    match theme_arg {
-        Some(s) => Theme::from_str(s).unwrap_or_else(detected_theme),
-        None => detected_theme(),
-    }
+pub fn get_theme(theme_arg: Option<Theme>) -> Theme {
+    theme_arg.unwrap_or_else(detected_theme)
 }
 
 /// Color scheme for the UI
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct ThemeColors {
     /// Line number color
     pub line_number: Color,
@@ -93,18 +75,6 @@ pub struct ThemeColors {
     pub status_bg: Color,
     /// Status bar foreground
     pub status_fg: Color,
-    /// Search highlight background
-    pub search_bg: Color,
-    /// Search highlight foreground
-    pub search_fg: Color,
-    /// Match line highlight background
-    pub match_line_bg: Color,
-    /// Context line color
-    pub context_fg: Color,
-    /// Separator color
-    pub separator: Color,
-    /// Error message color
-    pub error: Color,
 }
 
 impl ThemeColors {
@@ -116,18 +86,21 @@ impl ThemeColors {
         }
     }
 
+    /// A style-free palette for `--color never` and `NO_COLOR`.
+    pub fn plain() -> Self {
+        Self {
+            line_number: Color::Reset,
+            status_bg: Color::Reset,
+            status_fg: Color::Reset,
+        }
+    }
+
     /// Light theme colors
     fn light() -> Self {
         Self {
             line_number: Color::DarkGray,
             status_bg: Color::Rgb(200, 200, 200),
             status_fg: Color::Black,
-            search_bg: Color::Yellow,
-            search_fg: Color::Black,
-            match_line_bg: Color::Rgb(255, 255, 200),
-            context_fg: Color::DarkGray,
-            separator: Color::DarkGray,
-            error: Color::Red,
         }
     }
 
@@ -137,12 +110,6 @@ impl ThemeColors {
             line_number: Color::DarkGray,
             status_bg: Color::DarkGray,
             status_fg: Color::White,
-            search_bg: Color::Yellow,
-            search_fg: Color::Black,
-            match_line_bg: Color::Rgb(50, 50, 30),
-            context_fg: Color::DarkGray,
-            separator: Color::DarkGray,
-            error: Color::Red,
         }
     }
 }
@@ -153,21 +120,17 @@ mod tests {
 
     #[test]
     fn test_theme_from_str() {
-        assert_eq!(Theme::from_str("light"), Some(Theme::Light));
-        assert_eq!(Theme::from_str("LIGHT"), Some(Theme::Light));
-        assert_eq!(Theme::from_str("dark"), Some(Theme::Dark));
-        assert_eq!(Theme::from_str("DARK"), Some(Theme::Dark));
-        assert_eq!(Theme::from_str("invalid"), None);
+        use clap::ValueEnum;
+        assert_eq!(Theme::from_str("light", true), Ok(Theme::Light));
+        assert_eq!(Theme::from_str("LIGHT", true), Ok(Theme::Light));
+        assert_eq!(Theme::from_str("dark", true), Ok(Theme::Dark));
+        assert!(Theme::from_str("invalid", true).is_err());
     }
 
     #[test]
     fn test_theme_colors() {
         let light = ThemeColors::for_theme(Theme::Light);
         let dark = ThemeColors::for_theme(Theme::Dark);
-
-        // Both should have yellow search background
-        assert_eq!(light.search_bg, Color::Yellow);
-        assert_eq!(dark.search_bg, Color::Yellow);
 
         // Status bar should be different
         assert_ne!(light.status_bg, dark.status_bg);

@@ -1,8 +1,7 @@
+mod ansi;
 mod binary;
 mod encoding;
 mod file;
-mod follow;
-pub mod large;
 mod stdin;
 
 use std::path::PathBuf;
@@ -10,12 +9,10 @@ use std::path::PathBuf;
 use crate::cli::Args;
 use crate::error::MatError;
 
+pub use ansi::parse_ansi;
 pub use binary::is_binary;
 pub use encoding::{decode_bytes, detect_encoding};
 pub use file::{detect_extension, is_markdown_extension, read_file};
-pub use follow::FollowReader;
-// Large file support is available but not yet integrated into the main flow
-// pub use large::{LazyDocument, LARGE_FILE_THRESHOLD, should_use_lazy_loading};
 pub use stdin::{is_stdin_piped, read_stdin};
 
 /// Represents the source of input
@@ -34,9 +31,6 @@ pub struct Content {
     pub text: String,
     /// Name of the source (filename or "stdin")
     pub source_name: String,
-    /// File extension if applicable (for future language detection)
-    #[allow(dead_code)]
-    pub extension: Option<String>,
     /// Whether this should be treated as markdown
     pub is_markdown: bool,
     /// Detected or assumed encoding
@@ -80,28 +74,32 @@ pub fn expand_tabs(text: &str, tab_width: usize) -> String {
 
 /// Strips ANSI escape sequences from text
 pub fn strip_ansi(text: &str) -> String {
-    // Match ANSI escape sequences: ESC [ ... m (SGR) and other CSI sequences
     let mut result = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
 
     while let Some(c) = chars.next() {
         if c == '\x1b' {
-            // Check for CSI sequence (ESC [)
-            if chars.peek() == Some(&'[') {
-                chars.next(); // consume '['
-                // Consume until we hit a letter (the command)
-                while let Some(&next) = chars.peek() {
-                    chars.next();
-                    if next.is_ascii_alphabetic() {
-                        break;
+            match chars.next() {
+                Some('[') => {
+                    while let Some(&next) = chars.peek() {
+                        chars.next();
+                        if ('@'..='~').contains(&next) {
+                            break;
+                        }
                     }
                 }
+                Some(']') => {
+                    let mut previous_escape = false;
+                    for next in chars.by_ref() {
+                        if next == '\x07' || (previous_escape && next == '\\') {
+                            break;
+                        }
+                        previous_escape = next == '\x1b';
+                    }
+                }
+                Some(_) | None => {}
             }
-            // Skip other escape sequences (ESC followed by single char)
-            else if chars.peek().is_some() {
-                chars.next();
-            }
-        } else {
+        } else if !c.is_control() || matches!(c, '\n' | '\r' | '\t') {
             result.push(c);
         }
     }
@@ -124,8 +122,11 @@ pub fn load_content(source: InputSource, args: &Args) -> Result<Content, MatErro
         }
     };
 
-    // Check for binary content
-    if !args.force_binary && is_binary(&raw_bytes) {
+    // BOM detection must precede binary classification because UTF-16 text
+    // normally contains NUL bytes.
+    let encoding_name = detect_encoding(&raw_bytes);
+    let bom_marked_text = matches!(encoding_name, "UTF-8-BOM" | "UTF-16LE" | "UTF-16BE");
+    if !args.force_binary && !bom_marked_text && is_binary(&raw_bytes) {
         let path = match source {
             InputSource::File(p) => p,
             InputSource::Stdin => PathBuf::from("stdin"),
@@ -134,14 +135,7 @@ pub fn load_content(source: InputSource, args: &Args) -> Result<Content, MatErro
     }
 
     // Detect and decode encoding
-    let encoding_name = detect_encoding(&raw_bytes);
     let text = decode_bytes(raw_bytes, encoding_name)?;
-
-    // Strip ANSI unless --ansi flag is set
-    let text = if args.ansi { text } else { strip_ansi(&text) };
-
-    // Expand tabs to spaces (4 spaces per tab)
-    let text = expand_tabs(&text, 4);
 
     // Determine if markdown
     let is_markdown = if args.no_markdown {
@@ -158,7 +152,6 @@ pub fn load_content(source: InputSource, args: &Args) -> Result<Content, MatErro
     Ok(Content {
         text,
         source_name,
-        extension,
         is_markdown,
         encoding: encoding_name.to_string(),
     })
@@ -211,5 +204,13 @@ mod tests {
     fn test_strip_ansi_preserves_normal_text() {
         assert_eq!(strip_ansi("Hello World"), "Hello World");
         assert_eq!(strip_ansi("No escape codes here"), "No escape codes here");
+    }
+
+    #[test]
+    fn test_strip_ansi_discards_osc_and_cursor_controls() {
+        assert_eq!(
+            strip_ansi("before\x1b]0;owned\x07after\x1b[2J"),
+            "beforeafter"
+        );
     }
 }

@@ -19,10 +19,7 @@ pub fn is_binary(bytes: &[u8]) -> bool {
     }
 
     // Count non-printable characters
-    let non_printable_count = sample
-        .iter()
-        .filter(|&&b| !is_printable_byte(b))
-        .count();
+    let non_printable_count = sample.iter().filter(|&&b| !is_printable_byte(b)).count();
 
     let proportion = non_printable_count as f64 / sample.len() as f64;
     proportion > NON_PRINTABLE_THRESHOLD
@@ -71,7 +68,7 @@ mod tests {
         // Create content that's >30% non-printable (excluding high bytes)
         let mut binary = vec![0x01u8; 40]; // non-printable control chars
         binary.extend_from_slice(b"Hello"); // some printable text
-        // 40/45 = ~89% non-printable, should be detected as binary
+                                            // 40/45 = ~89% non-printable, should be detected as binary
         assert!(is_binary(&binary));
     }
 

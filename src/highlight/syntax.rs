@@ -1,5 +1,5 @@
-use once_cell::sync::Lazy;
 use ratatui::style::Color;
+use std::sync::LazyLock;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Style as SyntectStyle, ThemeSet};
 use syntect::parsing::SyntaxSet;
@@ -11,12 +11,12 @@ use crate::theme::Theme;
 static SYNTAX_SET_DATA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/syntax_set.packdump"));
 
 /// Lazily loaded syntax set
-static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(|| {
+static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(|| {
     syntect::dumps::from_uncompressed_data(SYNTAX_SET_DATA).expect("Failed to load syntax set")
 });
 
 /// Lazily loaded theme set
-static THEME_SET: Lazy<ThemeSet> = Lazy::new(ThemeSet::load_defaults);
+static THEME_SET: LazyLock<ThemeSet> = LazyLock::new(ThemeSet::load_defaults);
 
 /// Get the appropriate syntect theme name for our theme
 fn syntect_theme_name(theme: Theme) -> &'static str {
@@ -36,9 +36,16 @@ fn syntect_to_span_style(style: SyntectStyle) -> SpanStyle {
     SpanStyle {
         fg: Some(syntect_to_ratatui_color(style.foreground)),
         bg: None, // We don't use syntect's background
-        bold: style.font_style.contains(syntect::highlighting::FontStyle::BOLD),
-        italic: style.font_style.contains(syntect::highlighting::FontStyle::ITALIC),
-        underline: style.font_style.contains(syntect::highlighting::FontStyle::UNDERLINE),
+        bold: style
+            .font_style
+            .contains(syntect::highlighting::FontStyle::BOLD),
+        italic: style
+            .font_style
+            .contains(syntect::highlighting::FontStyle::ITALIC),
+        underline: style
+            .font_style
+            .contains(syntect::highlighting::FontStyle::UNDERLINE),
+        dim: false,
     }
 }
 
@@ -141,9 +148,7 @@ pub fn apply_syntax_highlight(document: &mut Document, language: Option<&str>, t
             Ok(ranges) => {
                 let spans: Vec<StyledSpan> = ranges
                     .into_iter()
-                    .map(|(style, text)| {
-                        StyledSpan::new(text, syntect_to_span_style(style))
-                    })
+                    .map(|(style, text)| StyledSpan::new(text, syntect_to_span_style(style)))
                     .collect();
 
                 if !spans.is_empty() {
@@ -179,7 +184,7 @@ mod tests {
 
         // After highlighting, spans should be modified
         // The exact styling depends on syntect, but we can verify spans exist
-        assert!(doc.lines[0].spans.len() > 0);
+        assert!(!doc.lines[0].spans.is_empty());
     }
 
     #[test]
@@ -191,7 +196,7 @@ mod tests {
         apply_syntax_highlight(&mut doc, Some("Python"), Theme::Dark);
 
         // Should have been highlighted
-        assert!(doc.lines[0].spans.len() > 0);
+        assert!(!doc.lines[0].spans.is_empty());
     }
 
     #[test]
@@ -213,7 +218,10 @@ mod tests {
 
         apply_syntax_highlight(&mut doc, None, Theme::Dark);
 
-        assert!(doc.lines[0].spans.len() > 0, "Bash highlighting should produce spans");
+        assert!(
+            !doc.lines[0].spans.is_empty(),
+            "Bash highlighting should produce spans"
+        );
     }
 
     #[test]
@@ -223,6 +231,9 @@ mod tests {
 
         apply_syntax_highlight(&mut doc, None, Theme::Dark);
 
-        assert!(doc.lines[0].spans.len() > 0, "TOML highlighting should produce spans");
+        assert!(
+            !doc.lines[0].spans.is_empty(),
+            "TOML highlighting should produce spans"
+        );
     }
 }

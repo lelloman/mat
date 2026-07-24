@@ -146,7 +146,6 @@ pub fn grep_filter(document: &Document, options: &GrepOptions) -> Document {
 
         for i in start..end {
             let original_line = &document.lines[i];
-            let text = original_line.text();
             let is_match = match_indices.contains(&i);
 
             let mut line = Line {
@@ -156,13 +155,11 @@ pub fn grep_filter(document: &Document, options: &GrepOptions) -> Document {
                 is_context: !is_match,
             };
 
-            // Context lines get dim styling
-            // Match lines keep their spans - highlighting applied later after syntax highlighting
-            if !is_match {
-                line.spans = vec![StyledSpan::new(
-                    text,
-                    SpanStyle::default().fg(ratatui::style::Color::DarkGray),
-                )];
+            if line.is_context {
+                let dim = SpanStyle::default().dim();
+                for span in &mut line.spans {
+                    span.style = span.style.overlay(&dim);
+                }
             }
 
             result_lines.push(line);
@@ -182,6 +179,7 @@ pub fn grep_filter(document: &Document, options: &GrepOptions) -> Document {
 }
 
 /// Highlight all matches of the pattern in the text
+#[cfg(test)]
 pub fn highlight_matches(text: &str, pattern: &Regex) -> Vec<StyledSpan> {
     let mut spans = Vec::new();
     let mut last_end = 0;
@@ -195,7 +193,10 @@ pub fn highlight_matches(text: &str, pattern: &Regex) -> Vec<StyledSpan> {
     for mat in pattern.find_iter(text) {
         // Add non-matching text before this match
         if mat.start() > last_end {
-            spans.push(StyledSpan::new(&text[last_end..mat.start()], normal_style.clone()));
+            spans.push(StyledSpan::new(
+                &text[last_end..mat.start()],
+                normal_style.clone(),
+            ));
         }
         // Add the matched text with highlight
         spans.push(StyledSpan::new(mat.as_str(), match_style.clone()));
@@ -219,12 +220,58 @@ pub fn highlight_matches(text: &str, pattern: &Regex) -> Vec<StyledSpan> {
 /// Apply grep match highlighting to a document
 /// This should be called AFTER syntax highlighting to overlay match highlights
 pub fn apply_grep_highlight(document: &mut Document, pattern: &Regex) {
+    let overlay = SpanStyle::default()
+        .fg(ratatui::style::Color::Black)
+        .bg(ratatui::style::Color::Cyan);
     for line in &mut document.lines {
         if line.is_match {
-            let text = line.text();
-            line.spans = highlight_matches(&text, pattern);
+            apply_overlay(&mut line.spans, pattern, &overlay);
         }
     }
+}
+
+/// Apply a regex style overlay without discarding existing span styles.
+fn apply_overlay(spans: &mut Vec<StyledSpan>, pattern: &Regex, overlay: &SpanStyle) {
+    let text: String = spans.iter().map(|span| span.text.as_str()).collect();
+    let matches: Vec<_> = pattern
+        .find_iter(&text)
+        .map(|m| (m.start(), m.end()))
+        .collect();
+    if matches.is_empty() {
+        return;
+    }
+
+    let mut result = Vec::new();
+    let mut span_start = 0;
+    for span in spans.iter() {
+        let span_end = span_start + span.text.len();
+        let mut cursor = 0;
+        for &(start, end) in &matches {
+            if end <= span_start || start >= span_end {
+                continue;
+            }
+            let local_start = start.saturating_sub(span_start);
+            let local_end = end.min(span_end) - span_start;
+            if local_start > cursor {
+                result.push(StyledSpan::new(
+                    &span.text[cursor..local_start],
+                    span.style.clone(),
+                ));
+            }
+            if local_end > local_start {
+                result.push(StyledSpan::new(
+                    &span.text[local_start..local_end],
+                    span.style.overlay(overlay),
+                ));
+            }
+            cursor = local_end;
+        }
+        if cursor < span.text.len() {
+            result.push(StyledSpan::new(&span.text[cursor..], span.style.clone()));
+        }
+        span_start = span_end;
+    }
+    *spans = result;
 }
 
 /// Merge overlapping ranges
@@ -407,5 +454,16 @@ mod tests {
         assert_eq!(spans.len(), 2);
         assert_eq!(spans[0].text, "hello ");
         assert_eq!(spans[1].text, "world");
+    }
+
+    #[test]
+    fn grep_overlay_preserves_base_attributes() {
+        let mut doc = Document::from_text("error", "test".into(), "UTF-8".into());
+        doc.lines[0].is_match = true;
+        doc.lines[0].spans[0].style = SpanStyle::new().fg(ratatui::style::Color::Red).bold();
+        apply_grep_highlight(&mut doc, &Regex::new("err").unwrap());
+        let style = &doc.lines[0].spans[0].style;
+        assert_eq!(style.bg, Some(ratatui::style::Color::Cyan));
+        assert!(style.bold);
     }
 }
