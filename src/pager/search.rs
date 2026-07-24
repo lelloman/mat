@@ -31,12 +31,6 @@ impl InteractiveSearch {
         self.query.pop();
     }
 
-    /// Clear the search query
-    #[allow(dead_code)]
-    pub fn clear(&mut self) {
-        self.query.clear();
-    }
-
     /// Check if the query is empty
     pub fn is_empty(&self) -> bool {
         self.query.is_empty()
@@ -80,9 +74,6 @@ mod tests {
 
         search.pop_char();
         assert_eq!(search.query, "hell");
-
-        search.clear();
-        assert!(search.is_empty());
     }
 
     #[test]

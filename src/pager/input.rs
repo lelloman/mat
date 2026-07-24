@@ -119,6 +119,8 @@ fn handle_normal_mode(key: KeyEvent, app: &mut App) -> bool {
         // Toggle line numbers
         KeyCode::Char('#') => {
             app.show_line_numbers = !app.show_line_numbers;
+            app.invalidate_wrap_cache();
+            app.build_wrapped_lines();
             false
         }
 
@@ -177,7 +179,19 @@ mod tests {
             "UTF-8".to_string(),
         );
         let theme_colors = ThemeColors::for_theme(Theme::Dark);
-        let mut app = App::new(doc, false, None, theme_colors, None, WrapMode::None, 200, None);
+        let mut app = App::new(
+            doc.clone(),
+            doc,
+            super::super::app::AppConfig {
+                show_line_numbers: false,
+                search_state: None,
+                theme_colors,
+                file_path: None,
+                wrap_mode: WrapMode::None,
+                max_width: 200,
+                reload_config: None,
+            },
+        );
         app.set_terminal_size(80, 3); // 2 content lines visible
         app
     }

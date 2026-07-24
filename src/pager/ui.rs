@@ -5,6 +5,7 @@ use ratatui::{
     widgets::Paragraph,
     Frame,
 };
+use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use crate::cli::WrapMode;
@@ -32,7 +33,7 @@ pub fn render(frame: &mut Frame, app: &App) {
 /// Render the content area (line numbers + text)
 fn render_content(frame: &mut Frame, app: &App, area: Rect) {
     let gutter_width = app.gutter_width();
-    let content_width = area.width as usize - gutter_width;
+    let content_width = (area.width as usize).saturating_sub(gutter_width);
 
     match app.wrap_mode {
         WrapMode::None => {
@@ -48,7 +49,13 @@ fn render_content(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 /// Render content in normal mode (horizontal scrolling)
-fn render_content_normal(frame: &mut Frame, app: &App, area: Rect, gutter_width: usize, content_width: usize) {
+fn render_content_normal(
+    frame: &mut Frame,
+    app: &App,
+    area: Rect,
+    gutter_width: usize,
+    content_width: usize,
+) {
     let (start, end) = app.visible_line_range();
     let visible_lines = &app.document.lines[start..end];
 
@@ -56,14 +63,17 @@ fn render_content_normal(frame: &mut Frame, app: &App, area: Rect, gutter_width:
     if app.show_line_numbers && gutter_width > 0 {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length(gutter_width as u16),
-                Constraint::Min(1),
-            ])
+            .constraints([Constraint::Length(gutter_width as u16), Constraint::Min(1)])
             .split(area);
 
         // Render line number gutter
-        render_gutter(frame, visible_lines, gutter_width, chunks[0], app.theme_colors.line_number);
+        render_gutter(
+            frame,
+            visible_lines,
+            gutter_width,
+            chunks[0],
+            app.theme_colors.line_number,
+        );
 
         // Render content
         render_lines(frame, app, visible_lines, content_width, chunks[1]);
@@ -74,7 +84,13 @@ fn render_content_normal(frame: &mut Frame, app: &App, area: Rect, gutter_width:
 }
 
 /// Render content in wrap mode (soft wrapping)
-fn render_content_wrapped(frame: &mut Frame, app: &App, area: Rect, gutter_width: usize, content_width: usize) {
+fn render_content_wrapped(
+    frame: &mut Frame,
+    app: &App,
+    area: Rect,
+    gutter_width: usize,
+    content_width: usize,
+) {
     // Get visible wrapped lines
     let (start, end) = if let Some(ref wrapped) = app.wrapped_lines {
         let start = app.scroll_line;
@@ -93,14 +109,17 @@ fn render_content_wrapped(frame: &mut Frame, app: &App, area: Rect, gutter_width
     if app.show_line_numbers && gutter_width > 0 {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length(gutter_width as u16),
-                Constraint::Min(1),
-            ])
+            .constraints([Constraint::Length(gutter_width as u16), Constraint::Min(1)])
             .split(area);
 
         // Render line number gutter for wrapped lines
-        render_gutter_wrapped(frame, visible_wrapped, gutter_width, chunks[0], app.theme_colors.line_number);
+        render_gutter_wrapped(
+            frame,
+            visible_wrapped,
+            gutter_width,
+            chunks[0],
+            app.theme_colors.line_number,
+        );
 
         // Render wrapped content
         render_wrapped_lines(frame, app, visible_wrapped, content_width, chunks[1]);
@@ -111,7 +130,13 @@ fn render_content_wrapped(frame: &mut Frame, app: &App, area: Rect, gutter_width
 }
 
 /// Render content in truncate mode (hard truncation)
-fn render_content_truncated(frame: &mut Frame, app: &App, area: Rect, gutter_width: usize, content_width: usize) {
+fn render_content_truncated(
+    frame: &mut Frame,
+    app: &App,
+    area: Rect,
+    gutter_width: usize,
+    content_width: usize,
+) {
     let (start, end) = app.visible_line_range();
     let visible_lines = &app.document.lines[start..end];
 
@@ -119,14 +144,17 @@ fn render_content_truncated(frame: &mut Frame, app: &App, area: Rect, gutter_wid
     if app.show_line_numbers && gutter_width > 0 {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length(gutter_width as u16),
-                Constraint::Min(1),
-            ])
+            .constraints([Constraint::Length(gutter_width as u16), Constraint::Min(1)])
             .split(area);
 
         // Render line number gutter
-        render_gutter(frame, visible_lines, gutter_width, chunks[0], app.theme_colors.line_number);
+        render_gutter(
+            frame,
+            visible_lines,
+            gutter_width,
+            chunks[0],
+            app.theme_colors.line_number,
+        );
 
         // Render truncated content
         render_lines_truncated(frame, app, visible_lines, content_width, chunks[1]);
@@ -137,13 +165,27 @@ fn render_content_truncated(frame: &mut Frame, app: &App, area: Rect, gutter_wid
 }
 
 /// Render the line number gutter
-fn render_gutter(frame: &mut Frame, lines: &[Line], gutter_width: usize, area: Rect, line_number_color: Color) {
+fn render_gutter(
+    frame: &mut Frame,
+    lines: &[Line],
+    gutter_width: usize,
+    area: Rect,
+    line_number_color: Color,
+) {
     let gutter_style = Style::default().fg(line_number_color);
 
     let gutter_lines: Vec<RatatuiLine> = lines
         .iter()
         .map(|line| {
-            let num_str = format!("{:>width$} ", line.number, width = gutter_width - 2);
+            let num_str = if line.number == 0 {
+                " ".repeat(gutter_width)
+            } else {
+                format!(
+                    "{:>width$} ",
+                    line.number,
+                    width = gutter_width.saturating_sub(2)
+                )
+            };
             RatatuiLine::from(Span::styled(num_str, gutter_style))
         })
         .collect();
@@ -153,13 +195,19 @@ fn render_gutter(frame: &mut Frame, lines: &[Line], gutter_width: usize, area: R
 }
 
 /// Render the line number gutter for wrapped lines (only show number for first row)
-fn render_gutter_wrapped(frame: &mut Frame, wrapped_lines: &[WrappedLine], gutter_width: usize, area: Rect, line_number_color: Color) {
+fn render_gutter_wrapped(
+    frame: &mut Frame,
+    wrapped_lines: &[WrappedLine],
+    gutter_width: usize,
+    area: Rect,
+    line_number_color: Color,
+) {
     let gutter_style = Style::default().fg(line_number_color);
 
     let gutter_lines: Vec<RatatuiLine> = wrapped_lines
         .iter()
         .map(|wrapped| {
-            if wrapped.is_first_row {
+            if wrapped.is_first_row && wrapped.line_number != 0 {
                 let num_str = format!("{:>width$} ", wrapped.line_number, width = gutter_width - 2);
                 RatatuiLine::from(Span::styled(num_str, gutter_style))
             } else {
@@ -175,29 +223,30 @@ fn render_gutter_wrapped(frame: &mut Frame, wrapped_lines: &[WrappedLine], gutte
 }
 
 /// Render wrapped lines
-fn render_wrapped_lines(frame: &mut Frame, app: &App, wrapped_lines: &[WrappedLine], width: usize, area: Rect) {
+fn render_wrapped_lines(
+    frame: &mut Frame,
+    app: &App,
+    wrapped_lines: &[WrappedLine],
+    width: usize,
+    area: Rect,
+) {
     let display_lines: Vec<RatatuiLine> = wrapped_lines
         .iter()
         .map(|wrapped| {
             let line = &app.document.lines[wrapped.line_idx];
             let text = line.text();
 
-            // Get the substring for this wrapped row
-            let chars: Vec<char> = text.chars().collect();
-            let row_text: String = chars
-                .iter()
-                .copied()
-                .skip(wrapped.char_offset)
-                .take_until_width(width)
-                .collect();
+            let row_text = &text[wrapped.byte_start..wrapped.byte_end];
 
             if line.spans.is_empty() || line.spans.len() == 1 && line.spans[0].style.is_plain() {
                 // Plain text
-                let padded = format!("{:width$}", row_text, width = width);
+                let padding = width.saturating_sub(UnicodeWidthStr::width(row_text));
+                let padded = format!("{row_text}{}", " ".repeat(padding));
                 RatatuiLine::from(Span::raw(padded))
             } else {
                 // Styled text - need to extract the right portion of spans
-                let ratatui_spans = extract_wrapped_spans(&line.spans, wrapped.char_offset, width);
+                let ratatui_spans =
+                    extract_wrapped_spans(&line.spans, wrapped.byte_start, wrapped.byte_end, width);
                 RatatuiLine::from(ratatui_spans)
             }
         })
@@ -218,11 +267,13 @@ fn render_lines_truncated(frame: &mut Frame, app: &App, lines: &[Line], width: u
             if line.spans.is_empty() || line.spans.len() == 1 && line.spans[0].style.is_plain() {
                 // Simple case: plain text
                 let text = line.text();
-                let display_text = truncate_with_indicator(&text, scroll_col, truncate_width, width);
+                let display_text =
+                    truncate_with_indicator(&text, scroll_col, truncate_width, width);
                 RatatuiLine::from(Span::raw(display_text))
             } else {
                 // Styled spans
-                let ratatui_spans = truncate_spans_with_indicator(&line.spans, scroll_col, truncate_width, width);
+                let ratatui_spans =
+                    truncate_spans_with_indicator(&line.spans, scroll_col, truncate_width, width);
                 RatatuiLine::from(ratatui_spans)
             }
         })
@@ -232,73 +283,36 @@ fn render_lines_truncated(frame: &mut Frame, app: &App, lines: &[Line], width: u
     frame.render_widget(paragraph, area);
 }
 
-/// Helper trait to take chars until a certain display width
-trait TakeUntilWidth: Iterator<Item = char> + Sized {
-    fn take_until_width(self, width: usize) -> TakeUntilWidthIter<Self> {
-        TakeUntilWidthIter {
-            iter: self,
-            remaining_width: width,
-        }
-    }
-}
-
-impl<I: Iterator<Item = char>> TakeUntilWidth for I {}
-
-struct TakeUntilWidthIter<I> {
-    iter: I,
-    remaining_width: usize,
-}
-
-impl<I: Iterator<Item = char>> Iterator for TakeUntilWidthIter<I> {
-    type Item = char;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let ch = self.iter.next()?;
-        let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
-        if ch_width <= self.remaining_width {
-            self.remaining_width -= ch_width;
-            Some(ch)
-        } else {
-            None
-        }
-    }
-}
-
 /// Extract wrapped portion of styled spans
 fn extract_wrapped_spans(
     spans: &[crate::display::StyledSpan],
-    char_offset: usize,
+    byte_start: usize,
+    byte_end: usize,
     width: usize,
 ) -> Vec<Span<'static>> {
     let mut result = Vec::new();
-    let mut current_char = 0;
+    let mut current_byte = 0;
     let mut chars_taken = 0;
 
     for span in spans {
-        if chars_taken >= width {
+        let span_start = current_byte;
+        let span_end = current_byte + span.text.len();
+        current_byte = span_end;
+        if span_end <= byte_start || span_start >= byte_end {
+            continue;
+        }
+        if chars_taken >= width && width > 0 {
             break;
         }
 
-        let mut span_text = String::new();
+        let local_start = byte_start.saturating_sub(span_start);
+        let local_end = byte_end.min(span_end) - span_start;
+        let span_text = &span.text[local_start..local_end];
         let style = span.style.to_ratatui_style();
 
-        for ch in span.text.chars() {
-            let ch_width = UnicodeWidthStr::width(ch.to_string().as_str());
-
-            if current_char >= char_offset {
-                // We're at or past the offset, start adding characters
-                if chars_taken + ch_width <= width {
-                    span_text.push(ch);
-                    chars_taken += ch_width;
-                } else {
-                    break;
-                }
-            }
-            current_char += 1;
-        }
-
         if !span_text.is_empty() {
-            result.push(Span::styled(span_text, style));
+            chars_taken += UnicodeWidthStr::width(span_text);
+            result.push(Span::styled(span_text.to_string(), style));
         }
     }
 
@@ -311,7 +325,12 @@ fn extract_wrapped_spans(
 }
 
 /// Truncate text with an indicator when content is cut off
-fn truncate_with_indicator(text: &str, scroll_col: usize, max_width: usize, display_width: usize) -> String {
+fn truncate_with_indicator(
+    text: &str,
+    scroll_col: usize,
+    max_width: usize,
+    display_width: usize,
+) -> String {
     let line_width = UnicodeWidthStr::width(text);
 
     // If the line fits within max_width, use normal truncation
@@ -326,12 +345,12 @@ fn truncate_with_indicator(text: &str, scroll_col: usize, max_width: usize, disp
     let mut current_col = 0;
     let mut chars_taken = 0;
 
-    for ch in text.chars() {
-        let ch_width = UnicodeWidthStr::width(ch.to_string().as_str());
+    for grapheme in text.graphemes(true) {
+        let ch_width = UnicodeWidthStr::width(grapheme);
 
         if current_col >= scroll_col {
             if chars_taken + ch_width <= effective_width {
-                result.push(ch);
+                result.push_str(grapheme);
                 chars_taken += ch_width;
             } else {
                 break;
@@ -392,12 +411,12 @@ fn truncate_spans_with_indicator(
         let mut span_text = String::new();
         let style = span.style.to_ratatui_style();
 
-        for ch in span.text.chars() {
-            let ch_width = UnicodeWidthStr::width(ch.to_string().as_str());
+        for grapheme in span.text.graphemes(true) {
+            let ch_width = UnicodeWidthStr::width(grapheme);
 
             if current_col >= scroll_col {
                 if chars_taken + ch_width <= effective_width {
-                    span_text.push(ch);
+                    span_text.push_str(grapheme);
                     chars_taken += ch_width;
                 } else {
                     break;
@@ -474,13 +493,13 @@ fn truncate_spans_with_scroll(
         let mut span_text = String::new();
         let style = span.style.to_ratatui_style();
 
-        for ch in span.text.chars() {
-            let ch_width = UnicodeWidthStr::width(ch.to_string().as_str());
+        for grapheme in span.text.graphemes(true) {
+            let ch_width = UnicodeWidthStr::width(grapheme);
 
             if current_col >= scroll_col {
                 // We're past the scroll offset, start adding characters
                 if chars_taken + ch_width <= width {
-                    span_text.push(ch);
+                    span_text.push_str(grapheme);
                     chars_taken += ch_width;
                 } else {
                     break;
@@ -519,13 +538,13 @@ fn truncate_with_scroll(text: &str, scroll_col: usize, width: usize) -> String {
     let mut current_col = 0;
     let mut chars_taken = 0;
 
-    for ch in text.chars() {
-        let ch_width = UnicodeWidthStr::width(ch.to_string().as_str());
+    for grapheme in text.graphemes(true) {
+        let ch_width = UnicodeWidthStr::width(grapheme);
 
         if current_col >= scroll_col {
             // We're past the scroll offset, start adding characters
             if chars_taken + ch_width <= width {
-                result.push(ch);
+                result.push_str(grapheme);
                 chars_taken += ch_width;
             } else {
                 break;
@@ -545,8 +564,9 @@ fn truncate_with_scroll(text: &str, scroll_col: usize, width: usize) -> String {
     }
 
     // Pad with spaces if needed (for consistent line length)
-    while result.len() < width {
+    while chars_taken < width {
         result.push(' ');
+        chars_taken += 1;
     }
 
     result
@@ -554,7 +574,11 @@ fn truncate_with_scroll(text: &str, scroll_col: usize, width: usize) -> String {
 
 /// Calculate scroll progress as a fraction (0.0 to 1.0)
 fn scroll_fraction(app: &App) -> f64 {
-    let total = app.total_lines();
+    let total = if app.wrap_mode == WrapMode::Wrap {
+        app.total_wrapped_lines()
+    } else {
+        app.total_lines()
+    };
     let height = app.content_height();
 
     if total <= height {
@@ -589,7 +613,11 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
 
     // Left: file name (and total lines if line numbers are shown)
     let position_text = if app.show_line_numbers {
-        format!(" {} ({} lines) ", app.document.source_name, app.total_lines())
+        format!(
+            " {} ({} lines) ",
+            app.document.source_name,
+            app.total_lines()
+        )
     } else {
         format!(" {} ", app.document.source_name)
     };
@@ -650,16 +678,20 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
                     app.document.encoding
                 )
             } else {
-                format!("Col {}/{} ", app.scroll_col + 1, app.document.max_line_width)
+                format!(
+                    "Col {}/{} ",
+                    app.scroll_col + 1,
+                    app.document.max_line_width
+                )
             }
         }
     };
 
     // Calculate spacing and progress bar size
     let total_width = area.width as usize;
-    let left_len = position_text.len();
-    let mode_len = mode_str.len();
-    let right_len = right.len();
+    let left_len = UnicodeWidthStr::width(position_text.as_str());
+    let mode_len = UnicodeWidthStr::width(mode_str.as_str());
+    let right_len = UnicodeWidthStr::width(right.as_str());
 
     // Calculate available space for progress bar and padding
     let fixed_content = left_len + mode_len + right_len;
@@ -679,7 +711,7 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     // Recalculate padding with progress bar
-    let remaining_space = available_space.saturating_sub(progress.len());
+    let remaining_space = available_space.saturating_sub(UnicodeWidthStr::width(progress.as_str()));
     let left_padding = remaining_space / 2;
     let right_padding = remaining_space.saturating_sub(left_padding);
 
@@ -693,16 +725,16 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         right
     );
 
-    // Truncate if too long
-    let status_text: String = status_text.chars().take(total_width).collect();
+    let status_text = truncate_with_scroll(&status_text, 0, total_width);
 
-    // Pad if too short
-    let status_text = format!("{:width$}", status_text, width = total_width);
-
-    let paragraph = Paragraph::new(RatatuiLine::from(Span::styled(
-        status_text,
-        style.add_modifier(Modifier::BOLD),
-    )));
+    let style = if app.theme_colors.status_bg == Color::Reset
+        && app.theme_colors.status_fg == Color::Reset
+    {
+        style
+    } else {
+        style.add_modifier(Modifier::BOLD)
+    };
+    let paragraph = Paragraph::new(RatatuiLine::from(Span::styled(status_text, style)));
     frame.render_widget(paragraph, area);
 }
 
@@ -714,7 +746,10 @@ mod tests {
     fn test_truncate_with_scroll() {
         assert_eq!(truncate_with_scroll("Hello World", 0, 5), "Hello");
         assert_eq!(truncate_with_scroll("Hello World", 6, 5), "World");
-        assert_eq!(truncate_with_scroll("Hello World", 0, 20), "Hello World         ");
+        assert_eq!(
+            truncate_with_scroll("Hello World", 0, 20),
+            "Hello World         "
+        );
     }
 
     #[test]
@@ -734,17 +769,5 @@ mod tests {
         // Text exceeds max_width - should have indicator
         let result = truncate_with_indicator("Hello World This Is Long", 0, 10, 15);
         assert!(result.contains('…'));
-    }
-
-    #[test]
-    fn test_take_until_width_iterator() {
-        let chars: Vec<char> = "Hello World".chars().collect();
-        let result: String = chars.iter().copied().take_until_width(5).collect();
-        assert_eq!(result, "Hello");
-
-        // Test with CJK - each CJK char is 2 columns
-        let chars: Vec<char> = "Hello世界".chars().collect();
-        let result: String = chars.iter().copied().take_until_width(7).collect();
-        assert_eq!(result, "Hello世");
     }
 }

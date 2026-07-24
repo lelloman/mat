@@ -1,33 +1,31 @@
 use std::path::PathBuf;
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 use crate::cli::WrapMode;
-use crate::display::{Document, Line};
-use crate::filter::{apply_grep_highlight, grep_filter, GrepOptions};
-use crate::highlight::{apply_search_highlight, apply_syntax_highlight, SearchState};
-use crate::input::{decode_bytes, detect_encoding, FollowReader};
-use crate::markdown::render_markdown;
-use crate::theme::{Theme, ThemeColors};
+use crate::display::Document;
+use crate::highlight::SearchState;
+use crate::input::{decode_bytes, detect_encoding, is_binary, Content};
+use crate::pipeline::{process, ProcessingConfig};
+use crate::theme::ThemeColors;
 
 use super::search::InteractiveSearch;
-use super::{filter_line_range, parse_line_range};
-
 /// Configuration needed for file reload
 #[derive(Clone)]
 pub struct ReloadConfig {
-    /// Override language for syntax highlighting
-    pub language: Option<String>,
-    /// Theme for syntax highlighting
-    pub theme: Theme,
-    /// Whether syntax highlighting is disabled
-    pub no_highlight: bool,
-    /// Whether to preserve ANSI codes
-    pub ansi: bool,
-    /// Whether the original view rendered markdown instead of raw text
-    pub render_markdown: bool,
-    /// Optional line range filter from the command line
-    pub line_range: Option<String>,
-    /// Optional grep filter and highlight settings from the command line
-    pub grep_options: Option<GrepOptions>,
+    pub processing: ProcessingConfig,
+    pub force_binary: bool,
+}
+
+/// Construction-time pager settings.
+pub struct AppConfig {
+    pub show_line_numbers: bool,
+    pub search_state: Option<SearchState>,
+    pub theme_colors: ThemeColors,
+    pub file_path: Option<PathBuf>,
+    pub wrap_mode: WrapMode,
+    pub max_width: usize,
+    pub reload_config: Option<ReloadConfig>,
 }
 
 /// Pager mode
@@ -43,8 +41,8 @@ pub enum Mode {
 pub struct App {
     /// The document being viewed
     pub document: Document,
-    /// Original document (for restoring after search cancel)
-    pub original_document: Option<Document>,
+    /// Canonical document before search overlays.
+    pub base_document: Document,
     /// Current scroll line (0-indexed, top of viewport)
     pub scroll_line: usize,
     /// Current horizontal scroll offset (0-indexed)
@@ -65,8 +63,6 @@ pub struct App {
     pub interactive_search: Option<InteractiveSearch>,
     /// Whether follow mode is active
     pub follow_mode: bool,
-    /// Follow reader for tailing files
-    pub follow_reader: Option<FollowReader>,
     /// Path to the file being viewed (for follow mode)
     pub file_path: Option<PathBuf>,
     /// Line wrapping mode
@@ -83,7 +79,6 @@ pub struct App {
 
 /// A single display row, which may be part of a wrapped line
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct WrappedLine {
     /// Original line index in the document (0-indexed)
     pub line_idx: usize,
@@ -91,88 +86,46 @@ pub struct WrappedLine {
     pub line_number: usize,
     /// Whether this is the first row of the original line
     pub is_first_row: bool,
-    /// Character offset into the original line where this row starts
-    pub char_offset: usize,
-    /// Number of display columns in this row
-    pub display_width: usize,
+    /// Byte range in the original line for this display row.
+    pub byte_start: usize,
+    pub byte_end: usize,
 }
 
 impl App {
     /// Create a new App with the given document
-    pub fn new(
-        document: Document,
-        show_line_numbers: bool,
-        search_state: Option<SearchState>,
-        theme_colors: ThemeColors,
-        file_path: Option<PathBuf>,
-        wrap_mode: WrapMode,
-        max_width: usize,
-        reload_config: Option<ReloadConfig>,
-    ) -> Self {
+    pub fn new(document: Document, base_document: Document, config: AppConfig) -> Self {
         Self {
             document,
-            original_document: None,
+            base_document,
             scroll_line: 0,
             scroll_col: 0,
             mode: Mode::Normal,
             should_quit: false,
             terminal_size: (80, 24),
-            show_line_numbers,
-            search_state,
-            theme_colors,
+            show_line_numbers: config.show_line_numbers,
+            search_state: config.search_state,
+            theme_colors: config.theme_colors,
             interactive_search: None,
             follow_mode: false,
-            follow_reader: None,
-            file_path,
-            wrap_mode,
-            max_width,
+            file_path: config.file_path,
+            wrap_mode: config.wrap_mode,
+            max_width: config.max_width,
             wrapped_lines: None,
             file_changed: false,
-            reload_config,
+            reload_config: config.reload_config,
         }
     }
 
     /// Toggle follow mode
     pub fn toggle_follow(&mut self) {
         // Only allow follow mode for files
-        if let Some(ref path) = self.file_path {
+        if self.file_path.is_some() {
             if self.follow_mode {
                 // Disable follow mode
                 self.follow_mode = false;
-                self.follow_reader = None;
             } else {
-                // Enable follow mode
-                if let Ok(reader) = FollowReader::new(path.clone(), true) {
-                    self.follow_mode = true;
-                    self.follow_reader = Some(reader);
-                    // Scroll to bottom when entering follow mode
-                    self.go_to_bottom();
-                }
-            }
-        }
-    }
-
-    /// Check for new content in follow mode and append to document
-    pub fn check_follow_updates(&mut self) {
-        if !self.follow_mode {
-            return;
-        }
-
-        if let Some(ref mut reader) = self.follow_reader {
-            if let Ok(new_lines) = reader.check_for_new_content() {
-                if !new_lines.is_empty() {
-                    let start_number = self.document.lines.len() + 1;
-                    for (i, text) in new_lines.into_iter().enumerate() {
-                        let line = Line::plain(start_number + i, &text);
-                        let width = line.width();
-                        self.document.lines.push(line);
-                        if width > self.document.max_line_width {
-                            self.document.max_line_width = width;
-                        }
-                    }
-                    // Auto-scroll to bottom
-                    self.go_to_bottom();
-                }
+                self.follow_mode = true;
+                self.go_to_bottom();
             }
         }
     }
@@ -196,60 +149,36 @@ impl App {
             Err(_) => return false,
         };
 
-        // Detect encoding and decode
         let encoding_name = detect_encoding(&bytes);
+        let bom_marked = matches!(encoding_name, "UTF-8-BOM" | "UTF-16LE" | "UTF-16BE");
+        if !config.force_binary && !bom_marked && is_binary(&bytes) {
+            return false;
+        }
         let text = match decode_bytes(bytes, encoding_name) {
             Ok(t) => t,
             Err(_) => return false,
         };
 
-        // Strip ANSI unless configured to preserve
-        let text = if config.ansi { text } else { crate::input::strip_ansi(&text) };
-
-        // Expand tabs
-        let text = crate::input::expand_tabs(&text, 4);
-
-        // Create new document using the same rendering path as initial load.
-        let mut new_doc = if config.render_markdown {
-            render_markdown(&text, self.document.source_name.clone())
-        } else {
-            Document::from_text(
-                &text,
-                self.document.source_name.clone(),
-                encoding_name.to_string(),
-            )
+        let content = Content {
+            text,
+            source_name: self.document.source_name.clone(),
+            is_markdown: config.processing.render_markdown,
+            encoding: encoding_name.to_string(),
         };
-
-        if let Some(ref range) = config.line_range {
-            let (start, end) = match parse_line_range(range, new_doc.line_count()) {
-                Ok(range) => range,
-                Err(_) => return false,
-            };
-            filter_line_range(&mut new_doc, start, end);
-        }
-
-        if let Some(ref opts) = config.grep_options {
-            new_doc = grep_filter(&new_doc, opts);
-        }
-
-        // Apply syntax highlighting if enabled
-        if !config.no_highlight && !config.render_markdown {
-            apply_syntax_highlight(&mut new_doc, config.language.as_deref(), config.theme);
-        }
-
-        if let Some(ref opts) = config.grep_options {
-            apply_grep_highlight(&mut new_doc, &opts.pattern);
-        }
-
-        // Re-apply search highlighting if we have a search pattern
-        if let Some(ref state) = self.search_state {
-            apply_search_highlight(&mut new_doc, &state.pattern);
+        let new_base = match process(content, &config.processing) {
+            Ok(document) => document,
+            Err(_) => return false,
+        };
+        let mut new_doc = new_base.clone();
+        if let Some(state) = &self.search_state {
+            crate::highlight::apply_search_highlight(&mut new_doc, &state.pattern);
         }
 
         // Store current scroll position
         let old_scroll = self.scroll_line;
 
         // Update document
+        self.base_document = new_base;
         self.document = new_doc;
 
         // Clear file changed flag
@@ -259,7 +188,10 @@ impl App {
         self.wrapped_lines = None;
 
         // Restore scroll position (clamped to new document bounds)
-        let max_scroll = self.document.line_count().saturating_sub(self.content_height());
+        let max_scroll = self
+            .document
+            .line_count()
+            .saturating_sub(self.content_height());
         self.scroll_line = old_scroll.min(max_scroll);
 
         // Rebuild wrapped lines if in wrap mode
@@ -276,8 +208,6 @@ impl App {
     /// Enter search mode
     /// If `case_insensitive` is true, search will ignore case
     pub fn enter_search_mode(&mut self, case_insensitive: bool) {
-        // Save original document for potential cancellation
-        self.original_document = Some(self.document.clone());
         self.interactive_search = Some(InteractiveSearch::new(case_insensitive));
         self.mode = Mode::Search {
             query: String::new(),
@@ -316,10 +246,7 @@ impl App {
 
     /// Apply incremental search highlighting
     fn apply_incremental_search(&mut self) {
-        // Restore original document first
-        if let Some(ref original) = self.original_document {
-            self.document = original.clone();
-        }
+        self.document = self.base_document.clone();
 
         // Apply highlighting
         if let Some(ref search) = self.interactive_search {
@@ -346,14 +273,13 @@ impl App {
 
         self.mode = Mode::Normal;
         self.interactive_search = None;
-        self.original_document = None;
     }
 
     /// Cancel the search and restore original document
     pub fn cancel_search(&mut self) {
-        // Restore original document
-        if let Some(original) = self.original_document.take() {
-            self.document = original;
+        self.document = self.base_document.clone();
+        if let Some(state) = &self.search_state {
+            crate::highlight::apply_search_highlight(&mut self.document, &state.pattern);
         }
 
         self.mode = Mode::Normal;
@@ -381,9 +307,16 @@ impl App {
     /// Scroll to show a specific line in the viewport
     fn scroll_to_line(&mut self, line_idx: usize) {
         let height = self.content_height();
-        // Try to center the line in the viewport
-        let target = line_idx.saturating_sub(height / 2);
-        let max_scroll = self.document.line_count().saturating_sub(height);
+        let row = if self.wrap_mode == WrapMode::Wrap {
+            self.wrapped_lines
+                .as_ref()
+                .and_then(|rows| rows.iter().position(|row| row.line_idx == line_idx))
+                .unwrap_or(line_idx)
+        } else {
+            line_idx
+        };
+        let target = row.saturating_sub(height / 2);
+        let max_scroll = self.max_scroll();
         self.scroll_line = target.min(max_scroll);
     }
 
@@ -431,11 +364,17 @@ impl App {
             return 0;
         }
         // Calculate width based on max line number
-        let max_line = self.document.line_count();
+        let max_line = self
+            .document
+            .lines
+            .iter()
+            .map(|line| line.number)
+            .max()
+            .unwrap_or(0);
         if max_line == 0 {
             3 // Minimum " 1 "
         } else {
-            let digits = (max_line as f64).log10().floor() as usize + 1;
+            let digits = max_line.to_string().len();
             digits + 2 // Space before and after number
         }
     }
@@ -471,7 +410,10 @@ impl App {
         if self.wrap_mode == WrapMode::Wrap {
             return; // No horizontal scroll in wrap mode
         }
-        let max_scroll = self.document.max_line_width.saturating_sub(self.content_width());
+        let max_scroll = self
+            .document
+            .max_line_width
+            .saturating_sub(self.content_width());
         self.scroll_col = (self.scroll_col + n).min(max_scroll);
     }
 
@@ -485,7 +427,10 @@ impl App {
     /// Scroll to the end of the longest visible line (disabled in wrap mode)
     pub fn scroll_to_line_end(&mut self) {
         if self.wrap_mode != WrapMode::Wrap {
-            let max_scroll = self.document.max_line_width.saturating_sub(self.content_width());
+            let max_scroll = self
+                .document
+                .max_line_width
+                .saturating_sub(self.content_width());
             self.scroll_col = max_scroll;
         }
     }
@@ -503,12 +448,13 @@ impl App {
     /// Get maximum scroll position
     fn max_scroll(&self) -> usize {
         match self.wrap_mode {
-            WrapMode::None | WrapMode::Truncate => {
-                self.document.line_count().saturating_sub(self.content_height())
-            }
-            WrapMode::Wrap => {
-                self.total_wrapped_lines().saturating_sub(self.content_height())
-            }
+            WrapMode::None | WrapMode::Truncate => self
+                .document
+                .line_count()
+                .saturating_sub(self.content_height()),
+            WrapMode::Wrap => self
+                .total_wrapped_lines()
+                .saturating_sub(self.content_height()),
         }
     }
 
@@ -530,7 +476,6 @@ impl App {
     }
 
     /// Check if we're at the end of the document
-    #[allow(dead_code)]
     pub fn at_bottom(&self) -> bool {
         match self.wrap_mode {
             WrapMode::None | WrapMode::Truncate => {
@@ -543,34 +488,14 @@ impl App {
         }
     }
 
-    /// Check if we're in a wrapping mode
-    #[allow(dead_code)]
-    pub fn is_wrapping(&self) -> bool {
-        self.wrap_mode == WrapMode::Wrap
-    }
-
     /// Get total number of wrapped lines (for wrap mode)
     pub fn total_wrapped_lines(&self) -> usize {
         if self.wrap_mode != WrapMode::Wrap {
             return self.document.line_count();
         }
-        // This is a simplified calculation - actual wrapping happens in render
-        let width = self.content_width();
-        if width == 0 {
-            return self.document.line_count();
-        }
-        self.document
-            .lines
-            .iter()
-            .map(|line| {
-                let line_width = line.width();
-                if line_width == 0 {
-                    1
-                } else {
-                    (line_width + width - 1) / width // ceil division
-                }
-            })
-            .sum()
+        self.wrapped_lines
+            .as_ref()
+            .map_or(self.document.line_count(), Vec::len)
     }
 
     /// Build wrapped line indices for efficient lookup
@@ -598,8 +523,8 @@ impl App {
                     line_idx,
                     line_number: line.number,
                     is_first_row: true,
-                    char_offset: 0,
-                    display_width: 0,
+                    byte_start: 0,
+                    byte_end: 0,
                 });
             } else {
                 // Break line into wrapped rows
@@ -607,8 +532,8 @@ impl App {
                 let mut is_first = true;
                 let mut row_start = 0;
 
-                for (char_idx, ch) in line_text.chars().enumerate() {
-                    let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+                for (byte_idx, grapheme) in line_text.grapheme_indices(true) {
+                    let ch_width = UnicodeWidthStr::width(grapheme);
 
                     if current_width + ch_width > width && current_width > 0 {
                         // Start a new row
@@ -616,11 +541,11 @@ impl App {
                             line_idx,
                             line_number: line.number,
                             is_first_row: is_first,
-                            char_offset: row_start,
-                            display_width: current_width,
+                            byte_start: row_start,
+                            byte_end: byte_idx,
                         });
                         is_first = false;
-                        row_start = char_idx;
+                        row_start = byte_idx;
                         current_width = ch_width;
                     } else {
                         current_width += ch_width;
@@ -633,8 +558,8 @@ impl App {
                         line_idx,
                         line_number: line.number,
                         is_first_row: is_first,
-                        char_offset: row_start,
-                        display_width: current_width,
+                        byte_start: row_start,
+                        byte_end: line_text.len(),
                     });
                 }
             }
@@ -643,58 +568,48 @@ impl App {
         self.wrapped_lines = Some(wrapped);
     }
 
-    /// Get wrapped lines, building cache if needed
-    #[allow(dead_code)]
-    pub fn get_wrapped_lines(&mut self) -> Option<&Vec<WrappedLine>> {
-        if self.wrap_mode != WrapMode::Wrap {
-            return None;
-        }
-        if self.wrapped_lines.is_none() {
-            self.build_wrapped_lines();
-        }
-        self.wrapped_lines.as_ref()
-    }
-
     /// Invalidate wrapped lines cache (call when document changes)
-    #[allow(dead_code)]
     pub fn invalidate_wrap_cache(&mut self) {
         self.wrapped_lines = None;
-    }
-
-    /// Get visible wrapped line range for rendering
-    #[allow(dead_code)]
-    pub fn visible_wrapped_range(&self) -> Option<(usize, usize)> {
-        if self.wrap_mode != WrapMode::Wrap {
-            return None;
-        }
-        if let Some(ref wrapped) = self.wrapped_lines {
-            let start = self.scroll_line;
-            let end = (start + self.content_height()).min(wrapped.len());
-            Some((start, end))
-        } else {
-            None
-        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::markdown::render_markdown;
     use crate::theme::Theme;
 
     fn create_test_doc(lines: usize) -> Document {
         let text: String = (1..=lines).map(|i| format!("Line {}\n", i)).collect();
-        Document::from_text(&text.trim_end(), "test.txt".to_string(), "UTF-8".to_string())
+        Document::from_text(text.trim_end(), "test.txt".to_string(), "UTF-8".to_string())
     }
 
     fn test_theme_colors() -> ThemeColors {
         ThemeColors::for_theme(Theme::Dark)
     }
 
+    fn test_app(document: Document, show_line_numbers: bool, wrap_mode: WrapMode) -> App {
+        let base_document = document.clone();
+        App::new(
+            document,
+            base_document,
+            AppConfig {
+                show_line_numbers,
+                search_state: None,
+                theme_colors: test_theme_colors(),
+                file_path: None,
+                wrap_mode,
+                max_width: 200,
+                reload_config: None,
+            },
+        )
+    }
+
     #[test]
     fn test_scroll_down() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None, test_theme_colors(), None, WrapMode::None, 200, None);
+        let mut app = test_app(doc, false, WrapMode::None);
         app.set_terminal_size(80, 24); // 23 content lines
 
         assert_eq!(app.scroll_line, 0);
@@ -709,7 +624,7 @@ mod tests {
     #[test]
     fn test_scroll_up() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None, test_theme_colors(), None, WrapMode::None, 200, None);
+        let mut app = test_app(doc, false, WrapMode::None);
         app.scroll_line = 50;
 
         app.scroll_up(10);
@@ -723,7 +638,7 @@ mod tests {
     #[test]
     fn test_go_to_top_bottom() {
         let doc = create_test_doc(100);
-        let mut app = App::new(doc, false, None, test_theme_colors(), None, WrapMode::None, 200, None);
+        let mut app = test_app(doc, false, WrapMode::None);
         app.set_terminal_size(80, 24);
         app.scroll_line = 50;
 
@@ -737,15 +652,15 @@ mod tests {
     #[test]
     fn test_gutter_width() {
         let doc = create_test_doc(9);
-        let app = App::new(doc, true, None, test_theme_colors(), None, WrapMode::None, 200, None);
+        let app = test_app(doc, true, WrapMode::None);
         assert_eq!(app.gutter_width(), 3); // " 9 "
 
         let doc = create_test_doc(99);
-        let app = App::new(doc, true, None, test_theme_colors(), None, WrapMode::None, 200, None);
+        let app = test_app(doc, true, WrapMode::None);
         assert_eq!(app.gutter_width(), 4); // " 99 "
 
         let doc = create_test_doc(999);
-        let app = App::new(doc, true, None, test_theme_colors(), None, WrapMode::None, 200, None);
+        let app = test_app(doc, true, WrapMode::None);
         assert_eq!(app.gutter_width(), 5); // " 999 "
     }
 
@@ -754,7 +669,7 @@ mod tests {
         // Create a document with lines that will wrap
         let text = "Short\nThis is a much longer line that should wrap at width 20\nAnother";
         let doc = Document::from_text(text, "test.txt".to_string(), "UTF-8".to_string());
-        let mut app = App::new(doc, false, None, test_theme_colors(), None, WrapMode::Wrap, 200, None);
+        let mut app = test_app(doc, false, WrapMode::Wrap);
         app.set_terminal_size(20, 10); // narrow width to force wrapping
 
         // Build wrapped lines
@@ -762,13 +677,17 @@ mod tests {
 
         // Total wrapped lines should be more than original 3 lines
         let total = app.total_wrapped_lines();
-        assert!(total > 3, "Expected wrapping to increase line count, got {}", total);
+        assert!(
+            total > 3,
+            "Expected wrapping to increase line count, got {}",
+            total
+        );
     }
 
     #[test]
     fn test_wrap_mode_no_horizontal_scroll() {
         let doc = create_test_doc(10);
-        let mut app = App::new(doc, false, None, test_theme_colors(), None, WrapMode::Wrap, 200, None);
+        let mut app = test_app(doc, false, WrapMode::Wrap);
         app.set_terminal_size(80, 24);
 
         // Horizontal scroll should be disabled in wrap mode
@@ -780,6 +699,38 @@ mod tests {
     }
 
     #[test]
+    fn wrapping_keeps_grapheme_clusters_together() {
+        let doc = Document::from_text("👨‍👩‍👧‍👦x", "test".into(), "UTF-8".into());
+        let mut app = test_app(doc, false, WrapMode::Wrap);
+        app.set_terminal_size(2, 5);
+        app.build_wrapped_lines();
+        let rows = app.wrapped_lines.as_ref().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            &app.document.lines[0].text()[rows[0].byte_start..rows[0].byte_end],
+            "👨‍👩‍👧‍👦"
+        );
+    }
+
+    #[test]
+    fn tiny_terminal_dimensions_saturate() {
+        let doc = create_test_doc(2);
+        let mut app = test_app(doc, true, WrapMode::Wrap);
+        app.set_terminal_size(0, 0);
+        assert_eq!(app.content_width(), 0);
+        assert_eq!(app.content_height(), 0);
+        app.build_wrapped_lines();
+    }
+
+    #[test]
+    fn gutter_uses_largest_original_line_number() {
+        let mut doc = create_test_doc(2);
+        doc.lines[1].number = 12_345;
+        let app = test_app(doc, true, WrapMode::None);
+        assert_eq!(app.gutter_width(), 7);
+    }
+
+    #[test]
     fn test_reload_preserves_markdown_rendering() {
         let temp = tempfile::NamedTempFile::with_suffix(".md").unwrap();
         let initial_text = "# Initial\n\nBody text\n";
@@ -787,25 +738,38 @@ mod tests {
         std::fs::write(temp.path(), initial_text).unwrap();
 
         let source_name = temp.path().display().to_string();
-        let doc = render_markdown(initial_text, source_name.clone());
-        let expected = render_markdown(updated_text, source_name);
+        let doc = render_markdown(
+            initial_text,
+            source_name.clone(),
+            "UTF-8".into(),
+            Theme::Dark,
+        );
+        let expected = render_markdown(updated_text, source_name, "UTF-8".into(), Theme::Dark);
         let mut app = App::new(
+            doc.clone(),
             doc,
-            false,
-            None,
-            test_theme_colors(),
-            Some(temp.path().to_path_buf()),
-            WrapMode::None,
-            200,
-            Some(ReloadConfig {
-                language: None,
-                theme: Theme::Dark,
-                no_highlight: false,
-                ansi: false,
-                render_markdown: true,
-                line_range: None,
-                grep_options: None,
-            }),
+            AppConfig {
+                show_line_numbers: false,
+                search_state: None,
+                theme_colors: test_theme_colors(),
+                file_path: Some(temp.path().to_path_buf()),
+                wrap_mode: WrapMode::None,
+                max_width: 200,
+                reload_config: Some(ReloadConfig {
+                    processing: ProcessingConfig {
+                        render_markdown: true,
+                        preserve_ansi: false,
+                        styling: true,
+                        syntax_highlight: false,
+                        language: None,
+                        theme: Theme::Dark,
+                        line_range: None,
+                        grep: None,
+                        search: None,
+                    },
+                    force_binary: false,
+                }),
+            },
         );
 
         std::fs::write(temp.path(), updated_text).unwrap();

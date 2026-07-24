@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
@@ -9,11 +9,12 @@ pub struct FileWatcher {
     _watcher: RecommendedWatcher,
     /// Receiver for file change events
     receiver: Receiver<Result<Event, notify::Error>>,
+    path: PathBuf,
 }
 
 impl FileWatcher {
     /// Create a new file watcher for the given path
-    pub fn new(path: &PathBuf) -> Result<Self, notify::Error> {
+    pub fn new(path: &Path) -> Result<Self, notify::Error> {
         let (tx, rx) = mpsc::channel();
 
         let mut watcher = RecommendedWatcher::new(
@@ -23,12 +24,13 @@ impl FileWatcher {
             Config::default(),
         )?;
 
-        // Watch the file (not recursively since it's a single file)
-        watcher.watch(path, RecursiveMode::NonRecursive)?;
+        let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+        watcher.watch(parent, RecursiveMode::NonRecursive)?;
 
         Ok(Self {
             _watcher: watcher,
             receiver: rx,
+            path: path.to_path_buf(),
         })
     }
 
@@ -39,10 +41,14 @@ impl FileWatcher {
         let mut changed = false;
         while let Ok(result) = self.receiver.try_recv() {
             if let Ok(event) = result {
-                // Check if this is a modify event
-                if matches!(
+                if event.paths.iter().any(|path| {
+                    path == &self.path
+                        || (path.file_name().is_some() && path.file_name() == self.path.file_name())
+                }) && matches!(
                     event.kind,
-                    notify::EventKind::Modify(_) | notify::EventKind::Create(_)
+                    notify::EventKind::Modify(_)
+                        | notify::EventKind::Create(_)
+                        | notify::EventKind::Remove(_)
                 ) {
                     changed = true;
                 }
