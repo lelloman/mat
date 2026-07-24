@@ -12,7 +12,6 @@ pub const EXIT_INVALID_ARGS: i32 = 2;
 
 /// Custom error type for mat
 #[derive(Error, Debug)]
-#[allow(dead_code)]
 pub enum MatError {
     /// File I/O errors
     #[error("I/O error for '{path}': {source}")]
@@ -42,13 +41,17 @@ pub enum MatError {
     #[error("Invalid line range format: '{range}'. Expected formats: X:Y, :Y, X:, or X")]
     InvalidLineRange { range: String },
 
-    /// Encoding detection/conversion failed
-    #[error("Failed to detect or convert encoding for '{path}'")]
-    EncodingError { path: PathBuf },
-
     /// Follow mode with stdin
     #[error("Cannot use follow mode (-f) with stdin. Follow mode requires a file.")]
     FollowModeStdin,
+
+    /// Invalid combination of command-line options
+    #[error("{0}")]
+    InvalidArguments(String),
+
+    /// No file argument and no piped standard input
+    #[error("No input file specified. Use 'mat <file>' or pipe data to stdin.")]
+    MissingInput,
 }
 
 impl MatError {
@@ -57,7 +60,10 @@ impl MatError {
         match self {
             MatError::InvalidRegex { .. }
             | MatError::InvalidLineRange { .. }
-            | MatError::FollowModeStdin => EXIT_INVALID_ARGS,
+            | MatError::FollowModeStdin
+            | MatError::InvalidArguments(_)
+            | MatError::MissingInput
+            | MatError::EmptyPattern => EXIT_INVALID_ARGS,
             _ => EXIT_ERROR,
         }
     }

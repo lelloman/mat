@@ -6,86 +6,72 @@ mod highlight;
 mod input;
 mod markdown;
 mod pager;
+mod pipeline;
 mod theme;
 
 use clap::Parser;
-use std::process::ExitCode;
+use std::{io::IsTerminal, process::ExitCode};
 
-use cli::Args;
-use display::Document;
+use cli::{Args, ColorMode};
 use error::{MatError, EXIT_SUCCESS};
-use filter::{apply_grep_highlight, grep_filter, GrepOptions};
-use highlight::{apply_search_highlight, apply_syntax_highlight, SearchState};
+use filter::GrepOptions;
+use highlight::SearchState;
 use input::{determine_input_source, load_content};
-use markdown::render_markdown;
-use pager::{filter_line_range, parse_line_range, print_document, run_pager};
+use pager::{print_document, run_pager};
+use pipeline::{process, ProcessingConfig};
 use theme::get_theme;
 
 fn run(args: Args) -> Result<(), MatError> {
-    // Determine input source
-    let source = match determine_input_source(&args) {
-        Some(s) => s,
-        None => {
-            eprintln!("mat: No input file specified. Use 'mat <file>' or pipe data to stdin.");
-            return Ok(());
-        }
-    };
+    let source = determine_input_source(&args).ok_or(MatError::MissingInput)?;
+    let stdout_is_tty = std::io::stdout().is_terminal();
+    let direct_output = args.no_pager || !stdout_is_tty;
+    if args.follow && direct_output {
+        return Err(MatError::InvalidArguments(
+            "--follow requires the interactive pager and cannot be used with direct output"
+                .to_string(),
+        ));
+    }
 
-    // Validate: follow mode requires a file, not stdin
     if args.follow && matches!(source, input::InputSource::Stdin) {
         return Err(MatError::FollowModeStdin);
     }
 
-    // Load content
     let content = load_content(source.clone(), &args)?;
-
-    // Determine if we should render as markdown
-    let should_render_markdown = if args.no_markdown {
+    if args.file.is_none() && content.text.is_empty() {
+        return Err(MatError::MissingInput);
+    }
+    let render_markdown = if args.no_markdown {
         false
     } else if args.markdown {
         true
     } else {
-        // Auto-detect based on extension
         content.is_markdown
     };
-
-    // Create document (with or without markdown rendering)
-    let mut document = if should_render_markdown {
-        render_markdown(&content.text, content.source_name)
-    } else {
-        Document::from_text(&content.text, content.source_name, content.encoding)
-    };
-
-    // Apply line range filter if specified
-    if let Some(ref range) = args.lines {
-        let (start, end) = parse_line_range(range, document.line_count())?;
-        filter_line_range(&mut document, start, end);
-    }
-
-    // Apply grep filter if specified
     let grep_options = GrepOptions::from_args(&args)?;
-    if let Some(ref opts) = grep_options {
-        document = grep_filter(&document, opts);
-    }
-
-    // Determine theme for highlighting
-    let theme = get_theme(args.theme.as_deref());
-
-    // Apply syntax highlighting if not disabled and not rendering markdown
-    // (markdown renderer already applies its own styling)
-    if !args.no_highlight && !should_render_markdown {
-        apply_syntax_highlight(&mut document, args.language.as_deref(), theme);
-    }
-
-    // Apply grep match highlighting AFTER syntax highlighting
-    if let Some(ref opts) = grep_options {
-        apply_grep_highlight(&mut document, &opts.pattern);
-    }
-
-    // Apply search highlighting if specified
     let search_state = SearchState::from_args(&args)?;
-    if let Some(ref state) = search_state {
-        apply_search_highlight(&mut document, &state.pattern);
+    let theme = get_theme(args.theme);
+    let styling = match args.color {
+        ColorMode::Always => true,
+        ColorMode::Never => false,
+        ColorMode::Auto => stdout_is_tty && std::env::var_os("NO_COLOR").is_none(),
+    };
+    let processing = ProcessingConfig {
+        render_markdown,
+        preserve_ansi: args.ansi,
+        styling,
+        syntax_highlight: !args.no_highlight,
+        language: args.language.clone(),
+        theme,
+        line_range: args.lines.clone(),
+        grep: grep_options,
+        search: search_state.as_ref().map(|state| state.pattern.clone()),
+    };
+    let mut base_processing = processing.clone();
+    base_processing.search = None;
+    let base_document = process(content, &base_processing)?;
+    let mut document = base_document.clone();
+    if let Some(state) = &search_state {
+        highlight::apply_search_highlight(&mut document, &state.pattern);
     }
 
     // Get file path for follow mode (only for file inputs)
@@ -94,19 +80,19 @@ fn run(args: Args) -> Result<(), MatError> {
         input::InputSource::Stdin => None,
     };
 
-    // Run pager or print directly
-    if args.no_pager {
-        print_document(&document, args.line_numbers).map_err(|e| MatError::Io {
+    if direct_output {
+        print_document(&document, args.line_numbers, styling).map_err(|e| MatError::Io {
             source: e,
             path: std::path::PathBuf::from("stdout"),
         })?;
     } else {
         run_pager(
             document,
+            base_document,
             &args,
             search_state,
             file_path,
-            should_render_markdown,
+            base_processing,
         )?;
     }
 
@@ -119,6 +105,10 @@ fn main() -> ExitCode {
     match run(args) {
         Ok(()) => ExitCode::from(EXIT_SUCCESS as u8),
         Err(e) => {
+            if matches!(&e, MatError::Io { source, .. } if source.kind() == std::io::ErrorKind::BrokenPipe)
+            {
+                return ExitCode::SUCCESS;
+            }
             eprintln!("mat: {}", e);
             ExitCode::from(e.exit_code() as u8)
         }

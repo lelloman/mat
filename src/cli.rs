@@ -1,5 +1,7 @@
-use clap::{Parser, ValueEnum};
+use clap::{ArgGroup, Parser, ValueEnum};
 use std::path::PathBuf;
+
+use crate::theme::Theme;
 
 /// Line wrapping mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
@@ -13,12 +15,38 @@ pub enum WrapMode {
     Truncate,
 }
 
+/// When terminal styling should be emitted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
+pub enum ColorMode {
+    /// Style terminal output, but keep pipes and NO_COLOR output plain
+    #[default]
+    Auto,
+    /// Always emit terminal styling
+    Always,
+    /// Never emit terminal styling
+    Never,
+}
+
+fn parse_positive_usize(value: &str) -> Result<usize, String> {
+    let parsed = value
+        .parse::<usize>()
+        .map_err(|_| "expected a positive integer".to_string())?;
+    if parsed == 0 {
+        Err("value must be greater than zero".to_string())
+    } else {
+        Ok(parsed)
+    }
+}
+
 /// mat - A CLI tool combining cat, less, grep functionality with markdown rendering and syntax highlighting
 #[derive(Parser, Debug, Default)]
 #[command(name = "mat")]
 #[command(version)]
-#[command(about = "A CLI tool combining cat, less, grep with markdown rendering and syntax highlighting")]
+#[command(
+    about = "A CLI tool combining cat, less, grep with markdown rendering and syntax highlighting"
+)]
 #[command(long_about = None)]
+#[command(group(ArgGroup::new("pattern").args(["grep", "search"]).multiple(true)))]
 pub struct Args {
     /// Input file (use - for stdin)
     #[arg(value_name = "FILE")]
@@ -29,11 +57,11 @@ pub struct Args {
     pub line_numbers: bool,
 
     /// Disable syntax highlighting
-    #[arg(short = 'N', long = "no-highlight")]
+    #[arg(short = 'N', long = "no-highlight", conflicts_with = "language")]
     pub no_highlight: bool,
 
     /// Force markdown rendering
-    #[arg(short = 'm', long = "markdown")]
+    #[arg(short = 'm', long = "markdown", conflicts_with = "no_markdown")]
     pub markdown: bool,
 
     /// Disable markdown auto-detection
@@ -53,31 +81,43 @@ pub struct Args {
     pub grep: Option<String>,
 
     /// Case-insensitive for search/grep
-    #[arg(short = 'i', long = "ignore-case")]
+    #[arg(short = 'i', long = "ignore-case", requires = "pattern")]
     pub ignore_case: bool,
 
     /// Treat pattern as literal string, not regex
-    #[arg(short = 'F', long = "fixed-strings")]
+    #[arg(short = 'F', long = "fixed-strings", requires = "pattern")]
     pub fixed_strings: bool,
 
     /// Match whole words only
-    #[arg(short = 'w', long = "word-regexp")]
+    #[arg(short = 'w', long = "word-regexp", requires = "pattern")]
     pub word_regexp: bool,
 
     /// Match whole lines only
-    #[arg(short = 'x', long = "line-regexp")]
+    #[arg(short = 'x', long = "line-regexp", requires = "pattern")]
     pub line_regexp: bool,
 
     /// Lines after grep match
-    #[arg(short = 'A', long = "after", value_name = "N")]
+    #[arg(
+        short = 'A',
+        long = "after",
+        value_name = "N",
+        requires = "grep",
+        conflicts_with = "context"
+    )]
     pub after: Option<usize>,
 
     /// Lines before grep match
-    #[arg(short = 'B', long = "before", value_name = "N")]
+    #[arg(
+        short = 'B',
+        long = "before",
+        value_name = "N",
+        requires = "grep",
+        conflicts_with = "context"
+    )]
     pub before: Option<usize>,
 
     /// Lines before and after grep match
-    #[arg(short = 'C', long = "context", value_name = "N")]
+    #[arg(short = 'C', long = "context", value_name = "N", requires = "grep")]
     pub context: Option<usize>,
 
     /// Line wrap mode: none, wrap, truncate
@@ -85,7 +125,7 @@ pub struct Args {
     pub wrap: WrapMode,
 
     /// Max line width before truncation
-    #[arg(short = 'W', long = "max-width", value_name = "N", default_value = "200")]
+    #[arg(short = 'W', long = "max-width", value_name = "N", default_value = "200", value_parser = parse_positive_usize)]
     pub max_width: usize,
 
     /// Force syntax highlighting language
@@ -94,7 +134,12 @@ pub struct Args {
 
     /// Select color theme
     #[arg(short = 't', long = "theme", value_name = "NAME")]
-    pub theme: Option<String>,
+    #[arg(value_enum)]
+    pub theme: Option<Theme>,
+
+    /// Control terminal styling
+    #[arg(long, value_enum, default_value_t)]
+    pub color: ColorMode,
 
     /// Show line range: 50:100, :100, 50:, or 50
     #[arg(short = 'L', long = "lines", value_name = "RANGE")]
