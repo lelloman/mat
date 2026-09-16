@@ -62,9 +62,12 @@ impl Drop for TerminalGuard {
         if self.alternate_screen {
             let _ = execute!(stdout(), Show, LeaveAlternateScreen);
         }
-        let original = Arc::clone(&self.original_hook);
-        let _ = panic::take_hook();
-        panic::set_hook(Box::new(move |info| original(info)));
+        // Rust forbids modifying panic hooks while this thread is unwinding.
+        if !std::thread::panicking() {
+            let original = Arc::clone(&self.original_hook);
+            let _ = panic::take_hook();
+            panic::set_hook(Box::new(move |info| original(info)));
+        }
     }
 }
 
@@ -381,6 +384,30 @@ pub fn run_pager(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terminal_guard_survives_unwinding() {
+        const CHILD: &str = "MAT_TEST_PANIC_GUARD";
+        if std::env::var_os(CHILD).is_some() {
+            let result = panic::catch_unwind(|| {
+                let _guard = TerminalGuard::install();
+                panic!("intentional regression test panic");
+            });
+            assert!(result.is_err());
+            return;
+        }
+        // Isolate process-global hooks from other concurrently running tests.
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "pager::tests::terminal_guard_survives_unwinding"])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     #[test]
     fn test_parse_line_range_full() {
