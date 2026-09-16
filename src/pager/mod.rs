@@ -310,17 +310,12 @@ pub fn run_pager(
         state.find_matches(&app.document);
     }
 
-    // Enable follow mode if requested
-    if args.follow {
-        app.toggle_follow();
-    }
-
     // Get initial terminal size
     let size = terminal.size().map_err(|e| MatError::Io {
         source: e,
         path: std::path::PathBuf::from("terminal"),
     })?;
-    app.set_terminal_size(size.width, size.height);
+    app.initialize_view(size.width, size.height, args.follow);
 
     // Set up file watcher if viewing a file (not stdin)
     let file_watcher = file_path

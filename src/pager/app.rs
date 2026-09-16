@@ -116,6 +116,14 @@ impl App {
         }
     }
 
+    /// Establish the viewport before positioning follow mode at the end.
+    pub fn initialize_view(&mut self, width: u16, height: u16, follow: bool) {
+        self.set_terminal_size(width, height);
+        if follow {
+            self.toggle_follow();
+        }
+    }
+
     /// Toggle follow mode
     pub fn toggle_follow(&mut self) {
         // Only allow follow mode for files
@@ -636,6 +644,21 @@ mod tests {
             terminal
                 .draw(|frame| super::super::ui::render(frame, &app))
                 .unwrap();
+        }
+    }
+
+    #[test]
+    fn follow_starts_at_the_end_of_the_actual_viewport() {
+        for mode in [WrapMode::None, WrapMode::Wrap] {
+            let mut app = test_app(create_test_doc(50), false, mode);
+            app.file_path = Some("test.txt".into());
+            app.initialize_view(5, 5, true);
+            assert!(app.follow_mode);
+            assert!(app.at_bottom());
+            assert_eq!(
+                app.scroll_line + app.content_height(),
+                app.total_wrapped_lines()
+            );
         }
     }
 
