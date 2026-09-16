@@ -61,12 +61,12 @@ pub fn build_regex_pattern(
 
     // Word boundary matching
     if word_regexp {
-        pattern_str = format!(r"\b{}\b", pattern_str);
+        pattern_str = format!(r"\b(?:{})\b", pattern_str);
     }
 
     // Line matching
     if line_regexp {
-        pattern_str = format!(r"^{}$", pattern_str);
+        pattern_str = format!(r"^(?:{})$", pattern_str);
     }
 
     // Add case-insensitive flag if needed

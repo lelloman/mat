@@ -441,3 +441,19 @@ fn test_broken_stdout_pipe_is_a_normal_exit() {
     let status = child.wait().unwrap();
     assert!(status.success());
 }
+
+#[test]
+fn whole_word_and_line_options_group_regex_alternatives() {
+    for option in ["-w", "-x"] {
+        let (stdout, stderr, code) =
+            run_mat_with_stdin(&["-P", "-g", "foo|bar", option], "foo\nbar\nfoobar\n");
+        assert_eq!(code, 0, "{stderr}");
+        assert_eq!(stdout, "foo\nbar\n");
+        let (stdout, stderr, code) = run_mat_with_stdin(
+            &["-P", "-s", "foo|bar", option, "--color", "always"],
+            "foobar\n",
+        );
+        assert_eq!(code, 0, "{stderr}");
+        assert_eq!(stdout, "foobar\n");
+    }
+}
