@@ -140,6 +140,7 @@ pub fn grep_filter(document: &Document, options: &GrepOptions) -> Document {
     // Collect lines with proper flags
     let mut result_lines: Vec<Line> = Vec::new();
     let mut last_end = 0;
+    let mut matches = match_indices.iter().copied().peekable();
 
     for (start, end) in merged_ranges {
         // Add separator if there's a gap
@@ -149,7 +150,10 @@ pub fn grep_filter(document: &Document, options: &GrepOptions) -> Document {
 
         for i in start..end {
             let original_line = &document.lines[i];
-            let is_match = match_indices.contains(&i);
+            let is_match = matches.peek() == Some(&i);
+            if is_match {
+                matches.next();
+            }
 
             let mut line = Line {
                 number: original_line.number,
@@ -308,6 +312,28 @@ mod tests {
     fn create_test_doc() -> Document {
         let text = "apple\nbanana\ncherry\napricot\nblueberry\ncoconut\navocado";
         Document::from_text(text, "test.txt".to_string(), "UTF-8".to_string())
+    }
+
+    #[test]
+    fn dense_matches_retain_every_line_and_match_flag() {
+        let doc = Document::from_text(&"match\n".repeat(20_000), "test".into(), "UTF-8".into());
+        let filtered = grep_filter(
+            &doc,
+            &GrepOptions {
+                pattern: Regex::new("match").unwrap(),
+                before: 1,
+                after: 1,
+            },
+        );
+        assert_eq!(filtered.line_count(), 20_000);
+        assert!(filtered
+            .lines
+            .iter()
+            .enumerate()
+            .all(|(i, line)| line.number == i + 1
+                && line.is_match
+                && !line.is_context
+                && line.text() == "match"));
     }
 
     #[test]
