@@ -4,7 +4,7 @@
 interactive pager, grep filtering, search, syntax highlighting, and Markdown
 rendering.
 
-Version 0.3.0 is currently unreleased and requires Rust 1.88 or newer.
+Version 0.3.1 requires Rust 1.88 or newer.
 
 ## Installation
 
@@ -12,7 +12,7 @@ Version 0.3.0 is currently unreleased and requires Rust 1.88 or newer.
 cargo install mat-o-viewer
 ```
 
-To build the unreleased version:
+To build from source:
 
 ```bash
 git clone https://github.com/lelloman/mat

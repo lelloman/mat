@@ -1,6 +1,19 @@
 # Changelog
 
-## 0.3.0 (unreleased)
+## 0.3.1 (2026-09-16)
+
+- Fixed pager crashes after wrapping and gutter changes, including panic cleanup
+- Fixed whole-word and whole-line matching of regex alternatives
+- Preserved newline and multiline context in syntax highlighting and line ranges
+- Fixed follow-mode startup and preserved wrapped positions during reloads
+- Applied color policies consistently to search, reloads, and terminal output
+- Preserved blank lines in Markdown code blocks and corrected list prefixes
+- Added Unicode-aware wrapping and truncation to direct output
+- Prevented grep context overflow and removed quadratic match lookups
+- Surfaced watcher and reload errors while retaining the last good document
+- Added real pager regression tests to Linux and macOS CI
+
+## 0.3.0
 
 - Added automatic direct output and `--color auto|always|never`
 - Added safe SGR-only `--ansi` parsing and terminal-state restoration
