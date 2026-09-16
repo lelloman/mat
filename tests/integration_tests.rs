@@ -499,3 +499,14 @@ fn direct_output_wraps_and_truncates_without_splitting_graphemes() {
         format!("\x1b[31m{}\x1b[0m\n\x1b[31mz\x1b[0m\n", "x".repeat(80))
     );
 }
+
+#[test]
+fn maximum_grep_context_is_clamped_without_overflow() {
+    let maximum = usize::MAX.to_string();
+    for option in ["-A", "-C"] {
+        let (out, err, code) =
+            run_mat_with_stdin(&["-P", "-g", "x", option, &maximum], "x\ny\nz\n");
+        assert_eq!(code, 0, "{err}");
+        assert_eq!(out, "x\ny\nz\n");
+    }
+}

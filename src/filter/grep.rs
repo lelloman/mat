@@ -127,7 +127,10 @@ pub fn grep_filter(document: &Document, options: &GrepOptions) -> Document {
     let mut ranges: Vec<(usize, usize)> = Vec::new();
     for &match_idx in &match_indices {
         let start = match_idx.saturating_sub(options.before);
-        let end = (match_idx + options.after + 1).min(total_lines);
+        let end = match_idx
+            .saturating_add(options.after)
+            .saturating_add(1)
+            .min(total_lines);
         ranges.push((start, end));
     }
 
