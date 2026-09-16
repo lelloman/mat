@@ -37,12 +37,12 @@ pub fn process(content: Content, config: &ProcessingConfig) -> Result<Document, 
         Document::from_text(&text, source_name, encoding)
     };
 
+    if config.syntax_highlight && !config.render_markdown && !config.preserve_ansi {
+        apply_syntax_highlight(&mut document, config.language.as_deref(), config.theme);
+    }
     if let Some(range) = &config.line_range {
         let (start, end) = parse_line_range(range, document.line_count())?;
         filter_line_range(&mut document, start, end);
-    }
-    if config.syntax_highlight && !config.render_markdown && !config.preserve_ansi {
-        apply_syntax_highlight(&mut document, config.language.as_deref(), config.theme);
     }
     if let Some(grep) = &config.grep {
         document = grep_filter(&document, grep);

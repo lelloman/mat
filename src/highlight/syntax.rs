@@ -142,13 +142,19 @@ pub fn apply_syntax_highlight(document: &mut Document, language: Option<&str>, t
     let mut highlighter = HighlightLines::new(syntax, theme);
 
     for line in &mut document.lines {
-        let text = line.text();
+        // The compiled syntaxes use newline-aware end-of-line rules.
+        let mut text = line.text();
+        text.push('\n');
 
         match highlighter.highlight_line(&text, syntax_set) {
             Ok(ranges) => {
                 let spans: Vec<StyledSpan> = ranges
                     .into_iter()
-                    .map(|(style, text)| StyledSpan::new(text, syntect_to_span_style(style)))
+                    .filter_map(|(style, text)| {
+                        let text = text.strip_suffix('\n').unwrap_or(text);
+                        (!text.is_empty())
+                            .then(|| StyledSpan::new(text, syntect_to_span_style(style)))
+                    })
                     .collect();
 
                 if !spans.is_empty() {
@@ -165,6 +171,23 @@ pub fn apply_syntax_highlight(document: &mut Document, language: Option<&str>, t
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn line_comments_end_before_the_next_line() {
+        for (language, comment, code) in [
+            ("Python", "# comment", "x = 1"),
+            ("Rust", "// comment", "let x = 1;"),
+            ("Bash", "# comment", "echo hello"),
+        ] {
+            let mut doc =
+                Document::from_text(&format!("{comment}\n{code}"), "test".into(), "UTF-8".into());
+            let mut standalone = Document::from_text(code, "test".into(), "UTF-8".into());
+            apply_syntax_highlight(&mut doc, Some(language), Theme::Dark);
+            apply_syntax_highlight(&mut standalone, Some(language), Theme::Dark);
+            assert_eq!(doc.lines[1].spans, standalone.lines[0].spans, "{language}");
+            assert_eq!(doc.lines[1].text(), code);
+        }
+    }
 
     #[test]
     fn test_detect_language() {

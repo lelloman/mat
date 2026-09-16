@@ -457,3 +457,16 @@ fn whole_word_and_line_options_group_regex_alternatives() {
         assert_eq!(stdout, "foobar\n");
     }
 }
+
+#[test]
+fn line_ranges_preserve_multiline_syntax_context() {
+    let input = "/* comment\nstill a comment\n*/\nlet x = 1;\n";
+    let args = ["-P", "-t", "dark", "-l", "rs", "--color", "always"];
+    let (full, stderr, code) = run_mat_with_stdin(&args, input);
+    assert_eq!(code, 0, "{stderr}");
+    let mut ranged_args = args.to_vec();
+    ranged_args.extend(["-L", "2:4"]);
+    let (ranged, stderr, code) = run_mat_with_stdin(&ranged_args, input);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(ranged, full.split_once('\n').unwrap().1);
+}
