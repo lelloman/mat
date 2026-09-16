@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use crate::cli::WrapMode;
 use crate::display::{wrap_ranges, Document};
+use crate::error::MatError;
 use crate::highlight::SearchState;
 use crate::input::{decode_bytes, detect_encoding, is_binary, Content};
 use crate::pipeline::{process, ProcessingConfig};
@@ -64,6 +65,9 @@ pub struct App {
     pub interactive_search: Option<InteractiveSearch>,
     /// Whether follow mode is active
     pub follow_mode: bool,
+    /// Most recent watcher or reload failure, displayed in the status bar.
+    pub watch_error: Option<String>,
+    pub reload_error: Option<String>,
     /// Path to the file being viewed (for follow mode)
     pub file_path: Option<PathBuf>,
     /// Line wrapping mode
@@ -109,6 +113,8 @@ impl App {
             theme_colors: config.theme_colors,
             interactive_search: None,
             follow_mode: false,
+            watch_error: None,
+            reload_error: None,
             file_path: config.file_path,
             wrap_mode: config.wrap_mode,
             max_width: config.max_width,
@@ -129,7 +135,7 @@ impl App {
     /// Toggle follow mode
     pub fn toggle_follow(&mut self) {
         // Only allow follow mode for files
-        if self.file_path.is_some() {
+        if self.file_path.is_some() && self.watch_error.is_none() {
             if self.follow_mode {
                 // Disable follow mode
                 self.follow_mode = false;
@@ -140,34 +146,44 @@ impl App {
         }
     }
 
-    /// Reload the file from disk
-    /// Returns true if reload was successful
+    pub fn report_watch_error(&mut self, error: String) {
+        self.watch_error = Some(error);
+        self.follow_mode = false;
+    }
+
+    /// Reload without losing the last good document if reading or processing fails.
     pub fn reload_file(&mut self) -> bool {
-        let path = match &self.file_path {
-            Some(p) => p.clone(),
-            None => return false, // Can't reload stdin
-        };
+        match self.try_reload_file() {
+            Ok(()) => {
+                self.reload_error = None;
+                true
+            }
+            Err(error) => {
+                self.reload_error = Some(error.to_string());
+                false
+            }
+        }
+    }
 
-        let config = match &self.reload_config {
-            Some(c) => c.clone(),
-            None => return false, // No reload config available
-        };
-
-        // Read the file
-        let bytes = match std::fs::read(&path) {
-            Ok(b) => b,
-            Err(_) => return false,
-        };
+    fn try_reload_file(&mut self) -> Result<(), MatError> {
+        let path = self
+            .file_path
+            .clone()
+            .ok_or_else(|| MatError::InvalidArguments("Cannot reload standard input".into()))?;
+        let config = self.reload_config.clone().ok_or_else(|| {
+            MatError::InvalidArguments("Reload configuration is unavailable".into())
+        })?;
+        let bytes = std::fs::read(&path).map_err(|source| MatError::Io {
+            source,
+            path: path.clone(),
+        })?;
 
         let encoding_name = detect_encoding(&bytes);
         let bom_marked = matches!(encoding_name, "UTF-8-BOM" | "UTF-16LE" | "UTF-16BE");
         if !config.force_binary && !bom_marked && is_binary(&bytes) {
-            return false;
+            return Err(MatError::BinaryFile { path });
         }
-        let text = match decode_bytes(bytes, encoding_name) {
-            Ok(t) => t,
-            Err(_) => return false,
-        };
+        let text = decode_bytes(bytes, encoding_name)?;
 
         let content = Content {
             text,
@@ -175,10 +191,7 @@ impl App {
             is_markdown: config.processing.render_markdown,
             encoding: encoding_name.to_string(),
         };
-        let new_base = match process(content, &config.processing) {
-            Ok(document) => document,
-            Err(_) => return false,
-        };
+        let new_base = process(content, &config.processing)?;
         let mut new_doc = new_base.clone();
         if self.styling {
             if let Some(state) = &self.search_state {
@@ -204,7 +217,7 @@ impl App {
             state.find_matches(&self.document);
         }
 
-        true
+        Ok(())
     }
 
     /// Enter search mode
@@ -796,6 +809,43 @@ mod tests {
             force_binary: false,
         });
         (file, app)
+    }
+
+    #[test]
+    fn reload_errors_preserve_content_and_clear_after_recovery() {
+        let (file, mut app) = reloadable_app("original", WrapMode::None);
+        std::fs::write(file.path(), b"\0binary").unwrap();
+        assert!(!app.reload_file());
+        assert_eq!(app.document.lines[0].text(), "original");
+        assert!(app.reload_error.as_ref().unwrap().contains("Binary file"));
+        std::fs::remove_file(file.path()).unwrap();
+        assert!(!app.reload_file());
+        assert!(app.reload_error.as_ref().unwrap().contains("I/O error"));
+        std::fs::write(file.path(), "recovered").unwrap();
+        assert!(app.reload_file());
+        assert_eq!(app.document.lines[0].text(), "recovered");
+        assert!(app.reload_error.is_none());
+    }
+
+    #[test]
+    fn watcher_errors_disable_follow_and_remain_visible() {
+        use ratatui::{backend::TestBackend, Terminal};
+        let (_file, mut app) = reloadable_app("original", WrapMode::None);
+        app.initialize_view(80, 5, true);
+        app.report_watch_error("watch unavailable".into());
+        app.toggle_follow();
+        assert!(!app.follow_mode);
+        assert!(app.reload_file());
+        let mut terminal = Terminal::new(TestBackend::new(80, 5)).unwrap();
+        terminal
+            .draw(|frame| super::super::ui::render(frame, &app))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let status: String = (0..80).map(|x| buffer[(x, 4)].symbol()).collect();
+        assert!(
+            status.contains("Watch failed: watch unavailable"),
+            "{status}"
+        );
     }
 
     #[test]

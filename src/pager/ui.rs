@@ -611,6 +611,21 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         .bg(app.theme_colors.status_bg)
         .fg(app.theme_colors.status_fg);
 
+    // Put failures first so a long filename cannot hide them offscreen.
+    if let Some(message) = app
+        .reload_error
+        .as_ref()
+        .map(|error| format!("Reload failed: {error}"))
+        .or_else(|| {
+            app.watch_error
+                .as_ref()
+                .map(|error| format!("Watch failed: {error}; R to reload"))
+        })
+    {
+        frame.render_widget(Paragraph::new(message).style(style), area);
+        return;
+    }
+
     // Left: file name (and total lines if line numbers are shown)
     let position_text = if app.show_line_numbers {
         format!(

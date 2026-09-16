@@ -61,7 +61,9 @@ overridden with `--force-binary`.
 Follow mode reloads the complete file through the same decoding, rendering,
 range, highlighting, grep, and search pipeline after coalesced filesystem
 events. This favors correctness across truncation and file rotation, but is not
-optimized for very large or rapidly changing logs. Lazy/streaming large-file
+optimized for very large or rapidly changing logs. Watcher failures disable
+follow and appear in the status bar; `R` remains available for manual reloads.
+Failed reloads show an error and retain the last successfully loaded content. Lazy/streaming large-file
 support is intentionally deferred.
 
 ## Main options

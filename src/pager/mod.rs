@@ -358,12 +358,20 @@ pub fn run_pager(
         source: e,
         path: std::path::PathBuf::from("terminal"),
     })?;
-    app.initialize_view(size.width, size.height, args.follow);
-
-    // Set up file watcher if viewing a file (not stdin)
-    let file_watcher = file_path
+    // Establish the watcher before enabling follow, so failures cannot masquerade
+    // as an active subscription.
+    let mut file_watcher = match file_path
         .as_ref()
-        .and_then(|path| FileWatcher::new(path).ok());
+        .map(|path| FileWatcher::new(path))
+        .transpose()
+    {
+        Ok(watcher) => watcher,
+        Err(error) => {
+            app.report_watch_error(error.to_string());
+            None
+        }
+    };
+    app.initialize_view(size.width, size.height, args.follow);
 
     // Main loop
     loop {
@@ -399,14 +407,21 @@ pub fn run_pager(
         }
 
         if let Some(ref watcher) = file_watcher {
-            if watcher.check_changed() {
-                if app.follow_mode {
-                    let was_at_bottom = app.at_bottom();
-                    if app.reload_file() && was_at_bottom {
-                        app.go_to_bottom();
+            match watcher.check_changed() {
+                Ok(true) => {
+                    if app.follow_mode {
+                        let was_at_bottom = app.at_bottom();
+                        if app.reload_file() && was_at_bottom {
+                            app.go_to_bottom();
+                        }
+                    } else {
+                        app.file_changed = true;
                     }
-                } else {
-                    app.file_changed = true;
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    app.report_watch_error(error.to_string());
+                    file_watcher = None;
                 }
             }
         }
