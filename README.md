@@ -111,6 +111,15 @@ temporarily retains build-time `bincode` and `yaml-rust`; these unmaintained
 build-only dependencies are tracked exceptions until Syntect provides a
 replacement asset pipeline.
 
+## Development checks
+
+Run `cargo test --locked --all-targets`, `cargo fmt --all --check`, and
+`cargo clippy --locked --all-targets --all-features -- -D warnings`.
+On Unix, run `python3 tests/pager_pty.py target/debug/mat` after building or
+testing to exercise the real pager, including resizing, follow/rotation,
+search color policies, and reload failures. The script uses only Python's
+standard library and runs in the Linux and macOS CI jobs.
+
 ## License
 
 MIT
