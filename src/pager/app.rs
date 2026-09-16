@@ -335,12 +335,8 @@ impl App {
 
     /// Update terminal size
     pub fn set_terminal_size(&mut self, width: u16, height: u16) {
-        let old_size = self.terminal_size;
         self.terminal_size = (width, height);
-        // Invalidate wrapped lines cache if size changed and we're in wrap mode
-        if old_size != (width, height) && self.wrap_mode != WrapMode::None {
-            self.wrapped_lines = None;
-        }
+        self.build_wrapped_lines();
     }
 
     /// Get the content area height (excluding status bar)
@@ -502,12 +498,14 @@ impl App {
     pub fn build_wrapped_lines(&mut self) {
         if self.wrap_mode != WrapMode::Wrap {
             self.wrapped_lines = None;
+            self.clamp_scroll();
             return;
         }
 
         let width = self.content_width();
         if width == 0 {
             self.wrapped_lines = None;
+            self.clamp_scroll();
             return;
         }
 
@@ -566,6 +564,16 @@ impl App {
         }
 
         self.wrapped_lines = Some(wrapped);
+        self.clamp_scroll();
+    }
+
+    fn clamp_scroll(&mut self) {
+        self.scroll_line = self.scroll_line.min(self.max_scroll());
+        self.scroll_col = self.scroll_col.min(
+            self.document
+                .max_line_width
+                .saturating_sub(self.content_width()),
+        );
     }
 
     /// Invalidate wrapped lines cache (call when document changes)
@@ -604,6 +612,31 @@ mod tests {
                 reload_config: None,
             },
         )
+    }
+
+    #[test]
+    fn layout_changes_keep_scrolling_and_rendering_in_bounds() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        use ratatui::{backend::TestBackend, Terminal};
+
+        let doc = Document::from_text(&"x".repeat(1000), "test".into(), "UTF-8".into());
+        let mut app = test_app(doc, true, WrapMode::Wrap);
+        app.set_terminal_size(20, 5);
+        app.go_to_bottom();
+        super::super::input::handle_key(
+            KeyEvent::new(KeyCode::Char('#'), KeyModifiers::NONE),
+            &mut app,
+        );
+        assert!(app.at_bottom());
+        assert_eq!(app.scroll_line, 46);
+        for (width, height) in [(200, 5), (0, 0), (80, 24)] {
+            app.set_terminal_size(width, height);
+            assert!(app.scroll_line <= app.max_scroll());
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| super::super::ui::render(frame, &app))
+                .unwrap();
+        }
     }
 
     #[test]

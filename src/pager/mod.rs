@@ -319,9 +319,6 @@ pub fn run_pager(
     })?;
     app.set_terminal_size(size.width, size.height);
 
-    // Build wrapped lines if in wrap mode
-    app.build_wrapped_lines();
-
     // Set up file watcher if viewing a file (not stdin)
     let file_watcher = file_path
         .as_ref()
@@ -355,8 +352,6 @@ pub fn run_pager(
                 }
                 Event::Resize(width, height) => {
                     app.set_terminal_size(width, height);
-                    // Rebuild wrapped lines on resize
-                    app.build_wrapped_lines();
                 }
                 _ => {}
             }
