@@ -183,6 +183,7 @@ mod tests {
             doc.clone(),
             doc,
             super::super::app::AppConfig {
+                styling: true,
                 show_line_numbers: false,
                 search_state: None,
                 theme_colors,

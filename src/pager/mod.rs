@@ -284,6 +284,10 @@ pub fn run_pager(
         ThemeColors::plain()
     };
 
+    let styling = processing.styling;
+    // Honor the explicit CLI policy even when the backend sees NO_COLOR.
+    crossterm::style::force_color_output(styling);
+
     // Create reload config if viewing a file
     let reload_config = file_path.as_ref().map(|_| ReloadConfig {
         processing,
@@ -295,6 +299,7 @@ pub fn run_pager(
         document,
         base_document,
         AppConfig {
+            styling,
             show_line_numbers: args.line_numbers,
             search_state,
             theme_colors,

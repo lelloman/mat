@@ -70,8 +70,10 @@ fn run(args: Args) -> Result<(), MatError> {
     base_processing.search = None;
     let base_document = process(content, &base_processing)?;
     let mut document = base_document.clone();
-    if let Some(state) = &search_state {
-        highlight::apply_search_highlight(&mut document, &state.pattern);
+    if styling {
+        if let Some(state) = &search_state {
+            highlight::apply_search_highlight(&mut document, &state.pattern);
+        }
     }
 
     // Get file path for follow mode (only for file inputs)

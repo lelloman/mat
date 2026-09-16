@@ -19,6 +19,7 @@ pub struct ReloadConfig {
 
 /// Construction-time pager settings.
 pub struct AppConfig {
+    pub styling: bool,
     pub show_line_numbers: bool,
     pub search_state: Option<SearchState>,
     pub theme_colors: ThemeColors,
@@ -39,6 +40,8 @@ pub enum Mode {
 
 /// Main pager application state
 pub struct App {
+    /// Whether generated styling, including search overlays, is enabled.
+    pub styling: bool,
     /// The document being viewed
     pub document: Document,
     /// Canonical document before search overlays.
@@ -95,6 +98,7 @@ impl App {
     /// Create a new App with the given document
     pub fn new(document: Document, base_document: Document, config: AppConfig) -> Self {
         Self {
+            styling: config.styling,
             document,
             base_document,
             scroll_line: 0,
@@ -178,8 +182,10 @@ impl App {
             Err(_) => return false,
         };
         let mut new_doc = new_base.clone();
-        if let Some(state) = &self.search_state {
-            crate::highlight::apply_search_highlight(&mut new_doc, &state.pattern);
+        if self.styling {
+            if let Some(state) = &self.search_state {
+                crate::highlight::apply_search_highlight(&mut new_doc, &state.pattern);
+            }
         }
 
         // Store current scroll position
@@ -257,8 +263,10 @@ impl App {
         self.document = self.base_document.clone();
 
         // Apply highlighting
-        if let Some(ref search) = self.interactive_search {
-            search.apply_highlighting(&mut self.document);
+        if self.styling {
+            if let Some(ref search) = self.interactive_search {
+                search.apply_highlighting(&mut self.document);
+            }
         }
     }
 
@@ -286,8 +294,10 @@ impl App {
     /// Cancel the search and restore original document
     pub fn cancel_search(&mut self) {
         self.document = self.base_document.clone();
-        if let Some(state) = &self.search_state {
-            crate::highlight::apply_search_highlight(&mut self.document, &state.pattern);
+        if self.styling {
+            if let Some(state) = &self.search_state {
+                crate::highlight::apply_search_highlight(&mut self.document, &state.pattern);
+            }
         }
 
         self.mode = Mode::Normal;
@@ -611,6 +621,7 @@ mod tests {
             document,
             base_document,
             AppConfig {
+                styling: true,
                 show_line_numbers,
                 search_state: None,
                 theme_colors: test_theme_colors(),
@@ -660,6 +671,35 @@ mod tests {
                 app.total_wrapped_lines()
             );
         }
+    }
+
+    #[test]
+    fn plain_interactive_search_keeps_navigation_without_styling() {
+        let mut app = test_app(create_test_doc(50), false, WrapMode::None);
+        app.styling = false;
+        app.enter_search_mode(false);
+        for c in "Line 40".chars() {
+            app.search_add_char(c);
+        }
+        assert!(app
+            .document
+            .lines
+            .iter()
+            .flat_map(|line| &line.spans)
+            .all(|span| span.style.is_plain()));
+        app.confirm_search();
+        app.next_match();
+        assert_eq!(app.search_info(), Some((1, 1)));
+        assert!(app.scroll_line > 0);
+        app.enter_search_mode(false);
+        app.search_add_char('x');
+        app.cancel_search();
+        assert!(app
+            .document
+            .lines
+            .iter()
+            .flat_map(|line| &line.spans)
+            .all(|span| span.style.is_plain()));
     }
 
     #[test]
@@ -805,6 +845,7 @@ mod tests {
             doc.clone(),
             doc,
             AppConfig {
+                styling: true,
                 show_line_numbers: false,
                 search_state: None,
                 theme_colors: test_theme_colors(),
