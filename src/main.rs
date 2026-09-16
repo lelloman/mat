@@ -83,7 +83,22 @@ fn run(args: Args) -> Result<(), MatError> {
     };
 
     if direct_output {
-        print_document(&document, args.line_numbers, styling).map_err(|e| MatError::Io {
+        let width = if stdout_is_tty {
+            crossterm::terminal::size()
+                .map(|(width, _)| usize::from(width))
+                .unwrap_or(80)
+        } else {
+            80
+        };
+        print_document(
+            &document,
+            args.line_numbers,
+            styling,
+            args.wrap,
+            args.max_width,
+            width,
+        )
+        .map_err(|e| MatError::Io {
             source: e,
             path: std::path::PathBuf::from("stdout"),
         })?;

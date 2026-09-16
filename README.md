@@ -24,7 +24,10 @@ cargo build --release
 
 `mat FILE` opens the pager when stdout is a terminal. When stdout is redirected
 or piped, it prints directly; `--no-pager` also forces direct output.
-`--follow` is pager-only.
+`--follow` is pager-only. Direct output supports `--wrap wrap` and
+`--wrap truncate`; it uses terminal width, or 80 columns when redirected.
+`--max-width` caps the content width in truncate mode. Wrapped continuation
+rows leave the line-number gutter blank.
 
 `--color auto` is the default: terminal output is styled, while pipes and
 `NO_COLOR` output are plain. `--color always` emits ANSI SGR styling even to a

@@ -470,3 +470,32 @@ fn line_ranges_preserve_multiline_syntax_context() {
     assert_eq!(code, 0, "{stderr}");
     assert_eq!(ranged, full.split_once('\n').unwrap().1);
 }
+
+#[test]
+fn direct_output_wraps_and_truncates_without_splitting_graphemes() {
+    for (input, width, expected) in [
+        ("abcdef\n", "3", "ab…\n"),
+        ("你好世界\n", "4", "你…\n"),
+        ("👨‍👩‍👧‍👦abc\n", "3", "👨‍👩‍👧‍👦…\n"),
+        ("abcdef\n", "1", "…\n"),
+    ] {
+        let (out, err, code) =
+            run_mat_with_stdin(&["-P", "--wrap", "truncate", "-W", width], input);
+        assert_eq!(code, 0, "{err}");
+        assert_eq!(out, expected);
+    }
+    let input = format!("{}yz\n", "x".repeat(79));
+    let (out, err, code) = run_mat_with_stdin(&["--wrap", "wrap"], &input);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(out, format!("{}y\nz\n", "x".repeat(79)));
+    let input = format!("\x1b[31m{}z\x1b[0m\n", "x".repeat(80));
+    let (out, err, code) = run_mat_with_stdin(
+        &["-P", "--wrap", "wrap", "--ansi", "--color", "always"],
+        &input,
+    );
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(
+        out,
+        format!("\x1b[31m{}\x1b[0m\n\x1b[31mz\x1b[0m\n", "x".repeat(80))
+    );
+}

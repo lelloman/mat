@@ -17,12 +17,14 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 
-use crate::cli::Args;
-use crate::display::Document;
+use crate::cli::{Args, WrapMode};
+use crate::display::{slice_spans, wrap_ranges, Document, StyledSpan};
 use crate::error::MatError;
 use crate::highlight::SearchState;
 use crate::pipeline::ProcessingConfig;
 use crate::theme::{get_theme, ThemeColors};
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 pub use app::App;
 use app::{AppConfig, ReloadConfig};
@@ -143,6 +145,9 @@ pub fn print_document(
     document: &Document,
     show_line_numbers: bool,
     styled: bool,
+    wrap: WrapMode,
+    max_width: usize,
+    terminal_width: usize,
 ) -> io::Result<()> {
     let gutter_width = if show_line_numbers {
         let max_line = document
@@ -163,25 +168,58 @@ pub fn print_document(
 
     let stdout = stdout();
     let mut output = BufWriter::new(stdout.lock());
+    let width = terminal_width.saturating_sub(gutter_width).max(1);
     for line in &document.lines {
-        if show_line_numbers {
-            if line.number == 0 {
-                write!(output, "{:width$}", "", width = gutter_width)?;
-            } else {
-                write!(output, "{:>width$} ", line.number, width = gutter_width - 2)?;
-            }
-        }
-        if styled {
-            for span in &line.spans {
-                write!(output, "{}{}", style_sequence(&span.style), span.text)?;
-                if !span.style.is_plain() {
-                    write!(output, "\x1b[0m")?;
+        let text = line.text();
+        let (ranges, truncated) = match wrap {
+            WrapMode::None => (std::iter::once(0..text.len()).collect(), false),
+            WrapMode::Wrap => (wrap_ranges(&text, width), false),
+            WrapMode::Truncate => {
+                let limit = max_width.min(width).max(1);
+                if UnicodeWidthStr::width(text.as_str()) > limit {
+                    let mut columns = 0;
+                    let end = text
+                        .grapheme_indices(true)
+                        .find_map(|(offset, grapheme)| {
+                            columns += UnicodeWidthStr::width(grapheme);
+                            (columns > limit - 1).then_some(offset)
+                        })
+                        .unwrap_or(text.len());
+                    (std::iter::once(0..end).collect(), true)
+                } else {
+                    (std::iter::once(0..text.len()).collect(), false)
                 }
             }
-        } else {
-            write!(output, "{}", line.text())?;
+        };
+        for (row, range) in ranges.into_iter().enumerate() {
+            if show_line_numbers {
+                if line.number == 0 || row > 0 {
+                    write!(output, "{:width$}", "", width = gutter_width)?;
+                } else {
+                    write!(
+                        output,
+                        " {:>width$} ",
+                        line.number,
+                        width = gutter_width - 2
+                    )?;
+                }
+            }
+            let mut spans = slice_spans(&line.spans, range);
+            if truncated {
+                spans.push(StyledSpan::plain("…"));
+            }
+            for span in spans {
+                if styled {
+                    write!(output, "{}{}", style_sequence(&span.style), span.text)?;
+                    if !span.style.is_plain() {
+                        write!(output, "\x1b[0m")?;
+                    }
+                } else {
+                    write!(output, "{}", span.text)?;
+                }
+            }
+            writeln!(output)?;
         }
-        writeln!(output)?;
     }
     output.flush()?;
     Ok(())

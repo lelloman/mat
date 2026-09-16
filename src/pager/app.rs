@@ -1,9 +1,7 @@
 use std::path::PathBuf;
-use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
 
 use crate::cli::WrapMode;
-use crate::display::Document;
+use crate::display::{wrap_ranges, Document};
 use crate::highlight::SearchState;
 use crate::input::{decode_bytes, detect_encoding, is_binary, Content};
 use crate::pipeline::{process, ProcessingConfig};
@@ -531,53 +529,14 @@ impl App {
 
         for (line_idx, line) in self.document.lines.iter().enumerate() {
             let line_text = line.text();
-            let line_width = line.width();
-
-            if line_width == 0 {
-                // Empty line - still takes one row
+            for (row_idx, range) in wrap_ranges(&line_text, width).into_iter().enumerate() {
                 wrapped.push(WrappedLine {
                     line_idx,
                     line_number: line.number,
-                    is_first_row: true,
-                    byte_start: 0,
-                    byte_end: 0,
+                    is_first_row: row_idx == 0,
+                    byte_start: range.start,
+                    byte_end: range.end,
                 });
-            } else {
-                // Break line into wrapped rows
-                let mut current_width = 0;
-                let mut is_first = true;
-                let mut row_start = 0;
-
-                for (byte_idx, grapheme) in line_text.grapheme_indices(true) {
-                    let ch_width = UnicodeWidthStr::width(grapheme);
-
-                    if current_width + ch_width > width && current_width > 0 {
-                        // Start a new row
-                        wrapped.push(WrappedLine {
-                            line_idx,
-                            line_number: line.number,
-                            is_first_row: is_first,
-                            byte_start: row_start,
-                            byte_end: byte_idx,
-                        });
-                        is_first = false;
-                        row_start = byte_idx;
-                        current_width = ch_width;
-                    } else {
-                        current_width += ch_width;
-                    }
-                }
-
-                // Don't forget the last row
-                if current_width > 0 || is_first {
-                    wrapped.push(WrappedLine {
-                        line_idx,
-                        line_number: line.number,
-                        is_first_row: is_first,
-                        byte_start: row_start,
-                        byte_end: line_text.len(),
-                    });
-                }
             }
         }
 
