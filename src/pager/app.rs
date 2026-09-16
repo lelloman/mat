@@ -186,9 +186,6 @@ impl App {
             }
         }
 
-        // Store current scroll position
-        let old_scroll = self.scroll_line;
-
         // Update document
         self.base_document = new_base;
         self.document = new_doc;
@@ -199,14 +196,7 @@ impl App {
         // Invalidate wrapped lines cache
         self.wrapped_lines = None;
 
-        // Restore scroll position (clamped to new document bounds)
-        let max_scroll = self
-            .document
-            .line_count()
-            .saturating_sub(self.content_height());
-        self.scroll_line = old_scroll.min(max_scroll);
-
-        // Rebuild wrapped lines if in wrap mode
+        // Clamp the existing display-row offset only after rebuilding layout.
         self.build_wrapped_lines();
 
         // Update search state matches for new document
@@ -783,6 +773,42 @@ mod tests {
         doc.lines[1].number = 12_345;
         let app = test_app(doc, true, WrapMode::None);
         assert_eq!(app.gutter_width(), 7);
+    }
+
+    fn reloadable_app(text: &str, mode: WrapMode) -> (tempfile::NamedTempFile, App) {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), text).unwrap();
+        let doc = Document::from_text(text, file.path().display().to_string(), "UTF-8".into());
+        let mut app = test_app(doc, false, mode);
+        app.file_path = Some(file.path().to_owned());
+        app.reload_config = Some(ReloadConfig {
+            processing: ProcessingConfig {
+                render_markdown: false,
+                preserve_ansi: false,
+                styling: true,
+                syntax_highlight: false,
+                language: None,
+                theme: Theme::Dark,
+                line_range: None,
+                grep: None,
+                search: None,
+            },
+            force_binary: false,
+        });
+        (file, app)
+    }
+
+    #[test]
+    fn reload_preserves_wrapped_row_offset_and_clamps_after_truncation() {
+        let (file, mut app) = reloadable_app(&"x".repeat(1000), WrapMode::Wrap);
+        app.set_terminal_size(20, 5);
+        app.scroll_down(20);
+        assert!(app.reload_file());
+        assert_eq!(app.scroll_line, 20);
+        std::fs::write(file.path(), "x".repeat(200)).unwrap();
+        assert!(app.reload_file());
+        assert_eq!(app.scroll_line, 6);
+        assert!(app.at_bottom());
     }
 
     #[test]
