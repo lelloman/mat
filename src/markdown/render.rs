@@ -70,8 +70,6 @@ struct MarkdownRenderer {
     list_counters: Vec<usize>,
     /// Whether current list item at each depth is ordered
     list_ordered: Vec<bool>,
-    /// Whether we just started a list item (for bullet/number prefix)
-    needs_list_prefix: bool,
     /// Current heading level (for adding underlines)
     current_heading: Option<HeadingLevel>,
 }
@@ -88,7 +86,6 @@ impl MarkdownRenderer {
             list_depth: 0,
             list_counters: Vec::new(),
             list_ordered: Vec::new(),
-            needs_list_prefix: false,
             current_heading: None,
         }
     }
@@ -194,7 +191,7 @@ impl MarkdownRenderer {
                 if !self.current_line.is_empty() || !self.lines.is_empty() {
                     self.flush_line();
                 }
-                self.needs_list_prefix = true;
+                self.add_list_prefix();
             }
             Tag::Emphasis => {
                 let style = SpanStyle::new().fg(Color::Yellow).italic();
@@ -295,6 +292,9 @@ impl MarkdownRenderer {
             }
             TagEnd::CodeBlock => {
                 self.in_code_block = false;
+                if !self.current_line.is_empty() {
+                    self.flush_line();
+                }
                 // Add bottom border for code block
                 let style = SpanStyle::new().fg(Color::DarkGray);
                 self.add_styled_text(&"─".repeat(40), style);
@@ -338,20 +338,14 @@ impl MarkdownRenderer {
     }
 
     fn add_text(&mut self, text: &str) {
-        // Handle list prefix if needed
-        if self.needs_list_prefix {
-            self.add_list_prefix();
-            self.needs_list_prefix = false;
-        }
-
         if self.in_code_block {
             // Code block: preserve formatting with monospace style
             let style = SpanStyle::new().fg(Color::Green);
-            for line in text.split('\n') {
-                if !self.current_line.is_empty() {
+            for part in text.split_inclusive('\n') {
+                self.add_styled_text(part.strip_suffix('\n').unwrap_or(part), style.clone());
+                if part.ends_with('\n') {
                     self.flush_line();
                 }
-                self.add_styled_text(line, style.clone());
             }
         } else if self.in_blockquote {
             // Handle blockquote text (may contain newlines)
@@ -505,6 +499,40 @@ impl MarkdownRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn code_blocks_preserve_blank_lines_and_fragmented_text() {
+        let doc = render_markdown(
+            "```\n\na\n\n\nb\n\n```\n",
+            "test.md".into(),
+            "UTF-8".into(),
+            Theme::Dark,
+        );
+        let lines: Vec<_> = doc.lines.iter().map(Line::text).collect();
+        assert_eq!(&lines[2..lines.len() - 1], &["", "a", "", "", "b", ""]);
+
+        let mut renderer = MarkdownRenderer::new();
+        renderer.in_code_block = true;
+        renderer.add_text("hel");
+        renderer.add_text("lo\n\n");
+        assert_eq!(
+            renderer.lines.iter().map(Line::text).collect::<Vec<_>>(),
+            ["hello", ""]
+        );
+    }
+
+    #[test]
+    fn list_prefixes_precede_inline_code_and_task_markers() {
+        for (markdown, expected) in [
+            ("- `first` item", "• first item"),
+            ("1. `first`", "1. first"),
+            ("- [x] done", "• [x] done"),
+            ("- [ ] todo", "• [ ] todo"),
+        ] {
+            let doc = render_markdown(markdown, "test.md".into(), "UTF-8".into(), Theme::Dark);
+            assert_eq!(doc.lines[0].text(), expected);
+        }
+    }
 
     #[test]
     fn test_render_heading() {
