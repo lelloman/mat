@@ -354,8 +354,53 @@ impl App {
 
     /// Update terminal size
     pub fn set_terminal_size(&mut self, width: u16, height: u16) {
+        let keep_bottom = self.scroll_line > 0 && self.at_bottom();
+        let anchor = self.viewport_anchor();
         self.terminal_size = (width, height);
+        self.restore_layout(anchor);
+        if keep_bottom {
+            self.go_to_bottom();
+        }
+    }
+
+    /// Switch between terminal-width wrapping and horizontal scrolling.
+    pub fn toggle_wrap(&mut self) {
+        let anchor = self.viewport_anchor();
+        self.wrap_mode = if self.wrap_mode == WrapMode::Wrap {
+            WrapMode::None
+        } else {
+            WrapMode::Wrap
+        };
+        self.scroll_col = 0;
+        self.restore_layout(anchor);
+    }
+
+    pub fn toggle_line_numbers(&mut self) {
+        let keep_bottom = self.scroll_line > 0 && self.at_bottom();
+        let anchor = self.viewport_anchor();
+        self.show_line_numbers = !self.show_line_numbers;
+        self.restore_layout(anchor);
+        if keep_bottom {
+            self.go_to_bottom();
+        }
+    }
+
+    /// Locate the source text at the top of the viewport before reflowing.
+    fn viewport_anchor(&self) -> (usize, usize) {
+        self.wrapped_lines
+            .as_ref()
+            .and_then(|rows| rows.get(self.scroll_line))
+            .map_or((self.scroll_line, 0), |row| (row.line_idx, row.byte_start))
+    }
+
+    fn restore_layout(&mut self, (line_idx, byte_start): (usize, usize)) {
         self.build_wrapped_lines();
+        self.scroll_line = self.wrapped_lines.as_ref().map_or(line_idx, |rows| {
+            rows.iter()
+                .rposition(|row| row.line_idx == line_idx && row.byte_start <= byte_start)
+                .unwrap_or(0)
+        });
+        self.clamp_scroll();
     }
 
     /// Get the content area height (excluding status bar)
@@ -555,11 +600,6 @@ impl App {
                 .saturating_sub(self.content_width()),
         );
     }
-
-    /// Invalidate wrapped lines cache (call when document changes)
-    pub fn invalidate_wrap_cache(&mut self) {
-        self.wrapped_lines = None;
-    }
 }
 
 #[cfg(test)]
@@ -593,6 +633,34 @@ mod tests {
                 reload_config: None,
             },
         )
+    }
+
+    #[test]
+    fn reflow_preserves_source_position() {
+        let doc = Document::from_text(
+            &format!("{}\n{}\n{}", "a".repeat(40), "b".repeat(40), "c".repeat(80)),
+            "test.txt".into(),
+            "UTF-8".into(),
+        );
+        let mut app = test_app(doc, false, WrapMode::None);
+        app.set_terminal_size(10, 2);
+        app.scroll_line = 1;
+        app.scroll_right(4);
+        app.toggle_wrap();
+        assert_eq!(app.wrap_mode, WrapMode::Wrap);
+        assert_eq!(app.scroll_line, 4);
+        assert_eq!(app.scroll_col, 0);
+        app.scroll_down(2);
+        assert_eq!(app.viewport_anchor(), (1, 20));
+        app.set_terminal_size(20, 2);
+        assert_eq!(app.viewport_anchor(), (1, 20));
+        app.toggle_line_numbers();
+        assert_eq!(app.viewport_anchor(), (1, 17));
+        app.toggle_wrap();
+        assert_eq!(app.wrap_mode, WrapMode::None);
+        assert_eq!(app.scroll_line, 1);
+        app.scroll_right(4);
+        assert_eq!(app.scroll_col, 4);
     }
 
     #[test]

@@ -649,9 +649,9 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
 
             // Show wrap mode indicator
             match app.wrap_mode {
-                WrapMode::Wrap => indicators.push("[WRAP]".to_string()),
+                WrapMode::Wrap => indicators.push("[WRAP: w]".to_string()),
                 WrapMode::Truncate => indicators.push("[TRUNC]".to_string()),
-                WrapMode::None => {}
+                WrapMode::None => indicators.push("[SCROLL: w]".to_string()),
             }
 
             // Show follow mode indicator

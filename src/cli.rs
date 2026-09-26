@@ -7,9 +7,9 @@ use crate::theme::Theme;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
 pub enum WrapMode {
     /// No wrapping, horizontal scrolling enabled
-    #[default]
     None,
     /// Soft wrap at terminal width
+    #[default]
     Wrap,
     /// Hard truncate at max-width
     Truncate,
@@ -121,7 +121,7 @@ pub struct Args {
     pub context: Option<usize>,
 
     /// Line wrap mode: none, wrap, truncate
-    #[arg(long = "wrap", value_enum, default_value = "none")]
+    #[arg(long = "wrap", value_enum, default_value = "wrap")]
     pub wrap: WrapMode,
 
     /// Max line width before truncation

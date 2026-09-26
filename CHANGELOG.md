@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.2 (2026-09-26)
+
+- Made terminal-width wrapping the default, including direct output
+- Added `w` to switch between wrapping and horizontal scrolling in the pager
+- Displayed the active wrapping mode and toggle key in the status bar
+- Preserved reading position during reflow and kept the bottom visible on resize
+  and line-number changes
+
 ## 0.3.1 (2026-09-16)
 
 - Fixed pager crashes after wrapping and gutter changes, including panic cleanup

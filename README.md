@@ -4,7 +4,7 @@
 interactive pager, grep filtering, search, syntax highlighting, and Markdown
 rendering.
 
-Version 0.3.1 requires Rust 1.88 or newer.
+Version 0.3.2 requires Rust 1.88 or newer.
 
 ## Installation
 
@@ -24,8 +24,9 @@ cargo build --release
 
 `mat FILE` opens the pager when stdout is a terminal. When stdout is redirected
 or piped, it prints directly; `--no-pager` also forces direct output.
-`--follow` is pager-only. Direct output supports `--wrap wrap` and
-`--wrap truncate`; it uses terminal width, or 80 columns when redirected.
+`--follow` is pager-only. Lines wrap to terminal width by default, or 80 columns
+when redirected. Use `--wrap none` to preserve long lines or `--wrap truncate`
+to truncate them.
 `--max-width` caps the content width in truncate mode. Wrapped continuation
 rows leave the line-number gutter blank.
 
@@ -101,6 +102,12 @@ Run `mat --help` for the authoritative command-line reference.
 `j`/`k` or arrows scroll, `d`/`u` move half a page, `g`/`G` go to the
 top/bottom, `/` and `?` search, `n`/`N` navigate matches, `#` toggles line
 numbers, `R` reloads, `f` toggles follow, and `q` quits.
+
+Press `w` to switch between wrapping to the terminal width and horizontal
+scrolling. Wrapping is the default. In horizontal scrolling mode, `h`/`l` or left/right
+arrows scroll sideways; `0`/`$` jump to the start/end. Start with
+`mat --wrap wrap FILE` for wrapping or `mat --wrap none FILE` for horizontal
+scrolling. Wrapping adapts to terminal resizing and the line-number gutter.
 
 ## Dependency security
 

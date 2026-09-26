@@ -118,9 +118,12 @@ fn handle_normal_mode(key: KeyEvent, app: &mut App) -> bool {
 
         // Toggle line numbers
         KeyCode::Char('#') => {
-            app.show_line_numbers = !app.show_line_numbers;
-            app.invalidate_wrap_cache();
-            app.build_wrapped_lines();
+            app.toggle_line_numbers();
+            false
+        }
+
+        KeyCode::Char('w') => {
+            app.toggle_wrap();
             false
         }
 
@@ -195,6 +198,20 @@ mod tests {
         );
         app.set_terminal_size(80, 3); // 2 content lines visible
         app
+    }
+
+    #[test]
+    fn wrap_key_toggles_only_in_normal_mode() {
+        let mut app = create_test_app();
+        let key = KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE);
+        handle_key(key, &mut app);
+        assert_eq!(app.wrap_mode, WrapMode::Wrap);
+        handle_key(key, &mut app);
+        assert_eq!(app.wrap_mode, WrapMode::None);
+        app.enter_search_mode(false);
+        handle_key(key, &mut app);
+        assert_eq!(app.wrap_mode, WrapMode::None);
+        assert_eq!(app.mode, Mode::Search { query: "w".into() });
     }
 
     #[test]
