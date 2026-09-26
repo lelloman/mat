@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.3 (2026-09-26)
+
+- Rendered Markdown tables with borders, bold headers, and aligned columns
+- Honored left, center, and right cell alignment with Unicode-aware widths
+- Preserved inline formatting and handled empty cells and escaped pipes in tables
+
 ## 0.3.2 (2026-09-26)
 
 - Made terminal-width wrapping the default, including direct output

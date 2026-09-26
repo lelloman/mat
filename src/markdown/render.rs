@@ -1,5 +1,6 @@
-use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use ratatui::style::Color;
+use unicode_width::UnicodeWidthStr;
 
 use crate::display::{Document, Line, SpanStyle, StyledSpan};
 use crate::theme::Theme;
@@ -50,6 +51,19 @@ fn light_theme_color(color: Color) -> Color {
     }
 }
 
+type TableCell = Vec<StyledSpan>;
+
+struct Table {
+    alignments: Vec<Alignment>,
+    rows: Vec<Vec<TableCell>>,
+    current_row: Vec<TableCell>,
+}
+
+fn cell_width(cell: &[StyledSpan]) -> usize {
+    let text: String = cell.iter().map(|span| span.text.as_str()).collect();
+    UnicodeWidthStr::width(text.as_str())
+}
+
 /// Internal renderer state
 struct MarkdownRenderer {
     /// Accumulated lines
@@ -72,6 +86,7 @@ struct MarkdownRenderer {
     list_ordered: Vec<bool>,
     /// Current heading level (for adding underlines)
     current_heading: Option<HeadingLevel>,
+    table: Option<Table>,
 }
 
 impl MarkdownRenderer {
@@ -87,6 +102,7 @@ impl MarkdownRenderer {
             list_counters: Vec::new(),
             list_ordered: Vec::new(),
             current_heading: None,
+            table: None,
         }
     }
 
@@ -216,8 +232,15 @@ impl MarkdownRenderer {
                 self.add_styled_text("[Image: ", style.clone());
                 self.push_style(style);
             }
-            Tag::Table(_) => {
-                self.flush_line();
+            Tag::Table(alignments) => {
+                if !self.current_line.is_empty() {
+                    self.flush_line();
+                }
+                self.table = Some(Table {
+                    alignments,
+                    rows: Vec::new(),
+                    current_row: Vec::new(),
+                });
             }
             Tag::TableHead | Tag::TableRow | Tag::TableCell => {}
             Tag::FootnoteDefinition(_) => {}
@@ -320,12 +343,18 @@ impl MarkdownRenderer {
                 self.current_line
                     .push(StyledSpan::new("]", SpanStyle::new().fg(Color::Magenta)));
             }
-            TagEnd::Table => {}
+            TagEnd::Table => self.finish_table(),
             TagEnd::TableHead | TagEnd::TableRow => {
-                self.flush_line();
+                if let Some(table) = &mut self.table {
+                    table.rows.push(std::mem::take(&mut table.current_row));
+                }
             }
             TagEnd::TableCell => {
-                self.add_text(" | ");
+                if let Some(table) = &mut self.table {
+                    table
+                        .current_row
+                        .push(std::mem::take(&mut self.current_line));
+                }
             }
             TagEnd::FootnoteDefinition => {}
             TagEnd::MetadataBlock(_) => {}
@@ -335,6 +364,76 @@ impl MarkdownRenderer {
             TagEnd::HtmlBlock => {}
             TagEnd::Superscript | TagEnd::Subscript => {}
         }
+    }
+
+    fn finish_table(&mut self) {
+        let Some(table) = self.table.take() else {
+            return;
+        };
+        let widths: Vec<usize> = (0..table.alignments.len())
+            .map(|column| {
+                table
+                    .rows
+                    .iter()
+                    .filter_map(|row| row.get(column))
+                    .map(|cell| cell_width(cell))
+                    .max()
+                    .unwrap_or(0)
+                    .max(1)
+            })
+            .collect();
+        self.table_border(&widths, '┌', '┬', '┐');
+        for (row_index, row) in table.rows.into_iter().enumerate() {
+            self.table_prefix();
+            self.add_styled_text("│", SpanStyle::new().fg(Color::DarkGray));
+            for (column, width) in widths.iter().copied().enumerate() {
+                let cell = row.get(column).map(Vec::as_slice).unwrap_or_default();
+                let padding = width.saturating_sub(cell_width(cell));
+                let left = match table.alignments[column] {
+                    Alignment::Right => padding,
+                    Alignment::Center => padding / 2,
+                    Alignment::None | Alignment::Left => 0,
+                };
+                self.add_styled_text(&" ".repeat(left + 1), SpanStyle::default());
+                for span in cell {
+                    let mut span = span.clone();
+                    if row_index == 0 {
+                        span.style.bold = true;
+                    }
+                    self.current_line.push(span);
+                }
+                self.add_styled_text(&" ".repeat(padding - left + 1), SpanStyle::default());
+                self.add_styled_text("│", SpanStyle::new().fg(Color::DarkGray));
+            }
+            self.flush_line();
+            if row_index == 0 {
+                self.table_border(&widths, '├', '┼', '┤');
+            }
+        }
+        self.table_border(&widths, '└', '┴', '┘');
+    }
+
+    fn table_prefix(&mut self) {
+        if self.in_blockquote {
+            self.add_blockquote_prefix();
+        }
+        if self.list_depth > 0 {
+            self.add_styled_text(&"  ".repeat(self.list_depth), SpanStyle::default());
+        }
+    }
+
+    fn table_border(&mut self, widths: &[usize], left: char, middle: char, right: char) {
+        self.table_prefix();
+        let mut border = left.to_string();
+        for (column, width) in widths.iter().enumerate() {
+            if column > 0 {
+                border.push(middle);
+            }
+            border.push_str(&"─".repeat(width + 2));
+        }
+        border.push(right);
+        self.add_styled_text(&border, SpanStyle::new().fg(Color::DarkGray));
+        self.flush_line();
     }
 
     fn add_text(&mut self, text: &str) {
@@ -499,6 +598,52 @@ impl MarkdownRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tables_align_unicode_cells_and_preserve_inline_styles() {
+        let doc = render_markdown(
+            "| Name | Mid | N |\n| :--- | :---: | ---: |\n| **世界** | *e\u{301}* | `12` |\n| A | | 3 |\n\nAfter",
+            "test.md".into(), "UTF-8".into(), Theme::Dark,
+        );
+        let lines: Vec<_> = doc.lines.iter().map(Line::text).collect();
+        assert_eq!(
+            &lines[..6],
+            &[
+                "┌──────┬─────┬────┐",
+                "│ Name │ Mid │  N │",
+                "├──────┼─────┼────┤",
+                "│ 世界 │  e\u{301}  │ 12 │",
+                "│ A    │     │  3 │",
+                "└──────┴─────┴────┘",
+            ]
+        );
+        assert_eq!(lines.last().unwrap(), "After");
+        let spans = &doc.lines[3].spans;
+        assert!(spans.iter().any(|s| s.text == "世界" && s.style.bold));
+        assert!(spans.iter().any(|s| s.text == "e\u{301}" && s.style.italic));
+        assert!(spans
+            .iter()
+            .any(|s| s.text == "12" && s.style.fg == Some(Color::Cyan)));
+        assert!(doc.lines[1]
+            .spans
+            .iter()
+            .any(|s| s.text == "Name" && s.style.bold));
+        assert!(doc.lines[..6].iter().all(|line| line.width() == 19));
+    }
+
+    #[test]
+    fn tables_handle_missing_cells_escaped_pipes_and_multiple_tables() {
+        let doc = render_markdown(
+            "| A | B |\n| --- | --- |\n| x\\|y |\n\n| C |\n| --- |",
+            "test.md".into(),
+            "UTF-8".into(),
+            Theme::Light,
+        );
+        let lines: Vec<_> = doc.lines.iter().map(Line::text).collect();
+        assert!(lines.iter().any(|line| line == "│ x|y │   │"));
+        assert!(lines.iter().any(|line| line == "│ C │"));
+        assert_eq!(lines.iter().filter(|line| line.starts_with('┌')).count(), 2);
+    }
 
     #[test]
     fn code_blocks_preserve_blank_lines_and_fragmented_text() {

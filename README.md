@@ -4,7 +4,7 @@
 interactive pager, grep filtering, search, syntax highlighting, and Markdown
 rendering.
 
-Version 0.3.2 requires Rust 1.88 or newer.
+Version 0.3.3 requires Rust 1.88 or newer.
 
 ## Installation
 
@@ -52,6 +52,11 @@ mat --color always README.md > rendered.ansi
 
 For Markdown, both line ranges and grep operate on rendered display lines, not
 the original Markdown source lines.
+
+Markdown tables render with borders, bold headers, and columns sized to their
+contents. Left, center, and right alignment markers are honored, including
+Unicode text and inline formatting. For tables wider than the terminal, press
+`w` or use `--wrap none` to keep columns aligned and scroll horizontally.
 
 ## Input and limitations
 
